@@ -7,7 +7,7 @@ import sys
 import os
 
 # ================= КОНФИГУРАЦИЯ =================
-TOKEN = "8597607925:AAHTZ9QEtJZUUkkXglxiog_XVssqpQmr01o"  # Замените на ваш токен
+TOKEN = ""  # Замените на ваш токен
 
 # Проверяем, не запущен ли уже бот
 if os.path.exists('bot_running.lock'):
@@ -230,4 +230,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         if os.path.exists('bot_running.lock'):
+
             os.remove('bot_running.lock')
