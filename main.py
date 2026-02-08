@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.client.default import DefaultBotProperties  # Импортируем для новой версии aiogram
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ===================
 logging.basicConfig(
@@ -20,24 +21,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-# Получаем токен из переменных окружения или используем дефолтный
+# Получаем токен из переменных окружения
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
     logger.info("ℹ️ Установите переменную окружения TELEGRAM_BOT_TOKEN в настройках Bothost")
-    logger.info("ℹ️ Перейдите в Settings → Environment Variables")
     exit(1)
 
 # ==================== ИНИЦИАЛИЗАЦИЯ БОТА ===================
 try:
-    bot = Bot(token=TOKEN, parse_mode="HTML")
+    # НОВЫЙ синтаксис для aiogram 3.7.0+
+    bot = Bot(
+        token=TOKEN, 
+        default=DefaultBotProperties(parse_mode="HTML")  # Используем DefaultBotProperties
+    )
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
     logger.info("✅ Бот инициализирован успешно")
 except Exception as e:
     logger.error(f"❌ Ошибка инициализации бота: {e}")
-    logger.error("ℹ️ Проверьте корректность токена в BotFather")
     exit(1)
 
 # ================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================
@@ -600,7 +603,12 @@ async def main():
         logger.info("🚀 Запуск Brainrot Shop Bot...")
         logger.info("=" * 70)
 
-        # Проверяем токен
+        # Инициализация базы данных
+        if not init_database():
+            logger.error("❌ Не удалось инициализировать базу данных")
+            return
+
+        # Получаем информацию о боте
         try:
             bot_info = await bot.get_me()
             logger.info(f"✅ Бот подключен: @{bot_info.username}")
@@ -611,16 +619,12 @@ async def main():
             logger.error("ℹ️ Проверьте токен в BotFather")
             return
 
-        # Инициализация базы данных
-        if not init_database():
-            logger.error("❌ Не удалось инициализировать базу данных")
-            return
-
         # Удаляем вебхук
         await bot.delete_webhook(drop_pending_updates=True)
 
         logger.info("🔄 Запускаю polling...")
         logger.info("✅ БОТ УСПЕШНО ЗАПУЩЕН!")
+        logger.info("📊 Товары показываются ПО ПОРЯДКУ: 1 → 2 → 3 → 4 → 5 → ...")
         logger.info("=" * 70)
 
         # Запускаем бота
