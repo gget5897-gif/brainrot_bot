@@ -17,17 +17,12 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('bot.log')
     ]
 )
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
 TOKEN = ""
-
-if not TOKEN:
-    logger.error("❌ Токен бота не найден!")
-    logger.info("ℹ️ Убедитесь, что токен установлен в переменных окружения Bothost")
 
 # ==================== ИНИЦИАЛИЗАЦИЯ БОТА ===================
 bot = Bot(token=TOKEN)
@@ -50,6 +45,7 @@ class EditProductForm(StatesGroup):
 
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
+    """Инициализация базы данных - вызывается один раз при старте"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -65,8 +61,10 @@ def init_database():
         conn.commit()
         conn.close()
         logger.info("📦 База данных готова")
+        return True
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
+        return False
 
 # ================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==================
 def get_main_menu_keyboard():
@@ -189,7 +187,6 @@ async def cmd_status(message: types.Message):
 @dp.message(F.text == "🛍️ Покупатель")
 async def buyer_mode(message: types.Message):
     user_product_positions[message.from_user.id] = 0
-    init_database()
     product = await get_first_product()
 
     if product:
@@ -504,7 +501,7 @@ async def main():
         logger.info("🚀 Запуск Brainrot Shop Bot v2.3...")
         logger.info("=" * 70)
 
-        # Инициализируем базу данных
+        # Инициализируем базу данных один раз
         init_database()
 
         # Получаем информацию о боте
@@ -519,39 +516,16 @@ async def main():
         logger.info("🔄 Запускаю polling...")
         logger.info("=" * 70)
         logger.info("✅ БОТ УСПЕШНО ЗАПУЩЕН!")
-        logger.info("")
         logger.info("📊 Товары показываются ПО ПОРЯДКУ: 1 → 2 → 3 → 4 → 5 → ...")
-        logger.info("")
-        logger.info("🔗 Для проверки работы бота:")
-        logger.info("   • /status в Telegram - статус бота")
         logger.info("=" * 70)
 
-        # Запускаем бота с обработкой ошибок
-        restart_count = 0
-        max_restarts = 100
-        while restart_count < max_restarts:
-            try:
-                await dp.start_polling(bot, skip_updates=True)
-            except Exception as e:
-                restart_count += 1
-                logger.error(f"❌ Бот упал с ошибкой: {e}")
-                logger.info(f"🔄 Перезапуск #{restart_count} через 10 секунд...")
-                await asyncio.sleep(10)
-
-        logger.error(f"❌ Достигнут максимум перезапусков ({max_restarts}). Остановка.")
+        # Запускаем бота
+        await dp.start_polling(bot, skip_updates=True)
 
     except KeyboardInterrupt:
-        logger.info("\n" + "=" * 50)
-        logger.info("👋 Бот остановлен пользователем")
-        logger.info("=" * 50)
+        logger.info("\n👋 Бот остановлен пользователем")
     except Exception as e:
         logger.error(f"💥 Критическая ошибка: {e}")
-        logger.info("🔄 Попробуйте перезапустить проект")
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("\n👋 Завершение работы")
-    except Exception as e:
-        logger.error(f"💥 Фатальная ошибка: {e}")
+    asyncio.run(main())
