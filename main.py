@@ -1,14 +1,7 @@
-import os
 import asyncio
 import logging
 import sqlite3
-import aiohttp
-import requests
-import random
 from datetime import datetime
-from threading import Thread
-from flask import Flask, request, jsonify
-import time
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -17,255 +10,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-# ==================== FLASK ДЛЯ WEB SERVER ===================
-app = Flask('')
-
-
-@app.route('/')
-def home():
-    return """
-    <html>
-        <head>
-            <title>Brainrot Shop Bot</title>
-            <meta http-equiv="refresh" content="30">
-            <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-            <meta http-equiv="Pragma" content="no-cache">
-            <meta http-equiv="Expires" content="0">
-            <script>
-                // Авто-обновление страницы каждые 30 секунд
-                setInterval(function() {
-                    fetch('/ping').then(r => console.log('Ping:', new Date().toLocaleTimeString()));
-                }, 30000);
-            </script>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    text-align: center;
-                    padding: 50px;
-                }
-                .container {
-                    background: rgba(255, 255, 255, 0.1);
-                    backdrop-filter: blur(10px);
-                    border-radius: 20px;
-                    padding: 40px;
-                    max-width: 600px;
-                    margin: 0 auto;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-                }
-                h1 {
-                    font-size: 2.5em;
-                    margin-bottom: 20px;
-                }
-                .status {
-                    font-size: 1.5em;
-                    color: #4CAF50;
-                    font-weight: bold;
-                }
-                .uptime {
-                    font-size: 1.2em;
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: rgba(0, 0, 0, 0.2);
-                    border-radius: 10px;
-                }
-                .links {
-                    margin-top: 30px;
-                }
-                a {
-                    color: #FFD700;
-                    text-decoration: none;
-                    margin: 0 10px;
-                    padding: 10px 20px;
-                    border: 2px solid #FFD700;
-                    border-radius: 10px;
-                    transition: all 0.3s;
-                }
-                a:hover {
-                    background: #FFD700;
-                    color: #333;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🤖 Brainrot Shop Bot</h1>
-                <p class="status">✅ Online and Running</p>
-                <div class="uptime">
-                    <p>🕒 Server Time: {}</p>
-                    <p>🤖 Bot Status: <span id="botStatus">Checking...</span></p>
-                    <p>🔁 Self-ping: Every 20 seconds</p>
-                </div>
-                <p>Bot is active and ready to receive commands</p>
-
-                <div class="links">
-                    <a href="/health">Health Check</a>
-                    <a href="/ping">Ping</a>
-                    <a href="/bot-status">Bot Status</a>
-                </div>
-
-                <div style="margin-top: 40px; font-size: 0.9em; opacity: 0.8;">
-                    <p>Powered by Replit + Flask + Aiogram</p>
-                    <p>Auto-restart via UptimeRobot</p>
-                    <p>Active ping every 20 seconds</p>
-                </div>
-            </div>
-        </body>
-    </html>
-    """.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
-
-@app.route('/health')
-def health_check():
-    return jsonify({
-        "status": "online",
-        "timestamp": datetime.now().isoformat(),
-        "bot": "Steal A Brainrot Shop Bot",
-        "version": "2.3",
-        "service": "Telegram Bot API",
-        "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "bot_alive": True,
-        "endpoints": {
-            "home": "/",
-            "health": "/health",
-            "ping": "/ping",
-            "bot_status": "/bot-status"
-        }
-    })
-
-
-@app.route('/ping')
-def ping():
-    return jsonify({
-        "status": "pong",
-        "timestamp": datetime.now().isoformat(),
-        "server_time": datetime.now().strftime("%H:%M:%S"),
-        "bot_running": True
-    })
-
-
-@app.route('/bot-status')
-def bot_status():
-    return jsonify({
-        "status": "bot_running",
-        "bot_alive": True,
-        "last_activity": datetime.now().isoformat(),
-        "uptime": "24/7"
-    })
-
-
-@app.route('/keepalive')
-def keepalive():
-    return "BOT_ALIVE"
-
-
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
-
-
-def keep_alive():
-    t = Thread(target=run_flask, daemon=True)
-    t.start()
-
-
-# ==================== ПЕРЕМЕННЫЕ ДЛЯ СЛЕДКИ ЗА БОТОМ ===================
-bot_activity_counter = 0
-bot_last_active = datetime.now()
-
-
-# ==================== УЛУЧШЕННЫЙ КЕП-АЛАЙВ ДЛЯ БОТА ===================
-async def bot_keep_alive():
-    """Постоянная активность для бота, чтобы Replit не останавливал его"""
-    global bot_activity_counter, bot_last_active
-
-    while True:
-        try:
-            bot_activity_counter += 1
-            bot_last_active = datetime.now()
-
-            # Создаем активность для бота
-            if bot_activity_counter % 30 == 0:  # Каждые 30 циклов (≈10 минут)
-                logging.info(f"🤖 Bot keep-alive active. Counter: {bot_activity_counter}")
-                logging.info(f"📅 Last bot activity: {bot_last_active.strftime('%H:%M:%S')}")
-
-            # Короткий интервал - 20 секунд
-            await asyncio.sleep(20)
-
-        except Exception as e:
-            logging.error(f"❌ Bot keep-alive error: {e}")
-            await asyncio.sleep(30)
-
-
-# ==================== СИСТЕМНЫЙ ПИНГ ===================
-async def system_ping():
-    """Системный пинг для поддержания активности"""
-    ping_count = 0
-
-    while True:
-        try:
-            ping_count += 1
-
-            # Получаем URL нашего приложения
-            replit_app_url = os.environ.get("REPLIT_APP_URL", "")
-
-            if not replit_app_url:
-                replit_app_url = "https://brainrotbot.gget5897.replit.co"
-
-            # Пингуем разные эндпоинты
-            endpoints = ['/', '/ping', '/health', '/bot-status', '/keepalive']
-            endpoint = random.choice(endpoints)
-
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.get(
-                            f"{replit_app_url}{endpoint}",
-                            timeout=3,
-                            headers={'User-Agent': 'BotKeepAlive/1.0'}
-                    ) as resp:
-                        if resp.status == 200 and ping_count % 50 == 0:
-                            logging.info(f"✅ System ping #{ping_count} to {endpoint}")
-                except Exception as e:
-                    if ping_count % 20 == 0:
-                        logging.warning(f"⚠️ System ping error: {e}")
-
-            # Интервал 25 секунд
-            await asyncio.sleep(25)
-
-        except Exception as e:
-            logging.warning(f"⚠️ System ping loop error: {e}")
-            await asyncio.sleep(30)
-
-
-# ==================== ФОНОВЫЙ КЕП-АЛАЙВ ===================
-def background_keep_alive():
-    """Фоновая задача для поддержания активности"""
-    while True:
-        try:
-            # Создаем URL
-            url = "https://brainrotbot.gget5897.replit.co"
-
-            # Делаем запрос к keepalive эндпоинту
-            try:
-                response = requests.get(f"{url}/keepalive", timeout=5)
-                if response.status_code == 200:
-                    current_time = datetime.now().strftime('%H:%M:%S')
-                    logging.info(f"🌐 Background keep-alive at {current_time}")
-            except Exception as e:
-                logging.warning(f"⚠️ Background keep-alive failed: {e}")
-
-            # Интервал 30 секунд
-            time.sleep(30)
-
-        except Exception as e:
-            logging.error(f"❌ Background keep-alive thread error: {e}")
-            time.sleep(30)
-
-
-# Запускаем фоновый keep-alive в отдельном потоке
-background_thread = Thread(target=background_keep_alive, daemon=True)
-background_thread.start()
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ===================
 logging.basicConfig(
@@ -279,11 +23,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = os.environ.get("TOKEN") or ""
+TOKEN = ""
 
-if TOKEN == "":
-    print("❌ ВНИМАНИЕ: Установите токен в Secrets!")
-    print("ℹ️ Зайдите в Tools → Secrets и добавьте TOKEN=ваш_токен")
+if not TOKEN:
+    logger.error("❌ Токен бота не найден!")
+    logger.info("ℹ️ Убедитесь, что токен установлен в переменных окружения Bothost")
 
 # ==================== ИНИЦИАЛИЗАЦИЯ БОТА ===================
 bot = Bot(token=TOKEN)
@@ -293,7 +37,6 @@ dp = Dispatcher(storage=storage)
 # ================== ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ ПОРЯДКА ТОВАРОВ ==================
 user_product_positions = {}
 
-
 # ================== СОСТОЯНИЯ (FSM) ==================
 class ProductForm(StatesGroup):
     title = State()
@@ -301,11 +44,9 @@ class ProductForm(StatesGroup):
     price = State()
     contact = State()
 
-
 class EditProductForm(StatesGroup):
     waiting_for_field = State()
     waiting_for_new_value = State()
-
 
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
@@ -327,7 +68,6 @@ def init_database():
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
 
-
 # ================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==================
 def get_main_menu_keyboard():
     keyboard = [
@@ -337,7 +77,6 @@ def get_main_menu_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
-
 def get_buyer_keyboard():
     keyboard = [
         [KeyboardButton(text="⏭️ Следующий товар")],
@@ -345,7 +84,6 @@ def get_buyer_keyboard():
         [KeyboardButton(text="🏠 Главное меню")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
-
 
 def get_seller_keyboard():
     keyboard = [
@@ -355,7 +93,6 @@ def get_seller_keyboard():
         [KeyboardButton(text="🏠 Главное меню")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
-
 
 def create_products_keyboard(products):
     builder = InlineKeyboardBuilder()
@@ -373,7 +110,6 @@ def create_products_keyboard(products):
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_seller"))
     return builder.as_markup()
 
-
 def get_edit_options_keyboard():
     keyboard = [
         [KeyboardButton(text="📌 Название")],
@@ -383,7 +119,6 @@ def get_edit_options_keyboard():
         [KeyboardButton(text="❌ Отмена")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
-
 
 # ================== ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СЛЕДУЮЩЕГО ТОВАРА ==================
 async def get_next_product_for_user(user_id):
@@ -414,7 +149,6 @@ async def get_next_product_for_user(user_id):
         logger.error(f"❌ Ошибка при получении товара: {e}")
         return None
 
-
 async def get_first_product():
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -427,55 +161,33 @@ async def get_first_product():
         logger.error(f"❌ Ошибка при получении первого товара: {e}")
         return None
 
-
 # ================== ОБРАБОТЧИКИ КОМАНД ==================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     user_product_positions[message.from_user.id] = 0
     await message.answer(
         "🎮 Steal A Brainrot Shop\n\nВыберите свою роль:",
         reply_markup=get_main_menu_keyboard()
     )
 
-
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await message.answer(
         "🆘 Помощь\n\nОсновные команды:\n/start - начать работу\n/help - эта справка\n\nИспользуйте кнопки меню для навигации."
     )
 
-
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await message.answer(
         f"🤖 Статус бота:\n\n"
         f"✅ Онлайн и работает\n"
         f"🕒 Время сервера: {datetime.now().strftime('%H:%M:%S')}\n"
         f"👥 Пользователей в памяти: {len(user_product_positions)}\n"
-        f"⚡ Активность счетчик: {bot_activity_counter}\n"
-        f"🔁 Self-ping: каждые 20 секунд\n"
-        f"📡 UptimeRobot: мониторинг каждые 5 минут"
     )
-
-
-@dp.message(Command("ping"))
-async def cmd_ping(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
-    await message.answer(f"🏓 Pong! Bot is alive. Activity: {bot_activity_counter}")
-
 
 # ================== ПОКУПАТЕЛЬ ==================
 @dp.message(F.text == "🛍️ Покупатель")
 async def buyer_mode(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     user_product_positions[message.from_user.id] = 0
     init_database()
     product = await get_first_product()
@@ -494,11 +206,8 @@ async def buyer_mode(message: types.Message):
             reply_markup=get_main_menu_keyboard()
         )
 
-
 @dp.message(F.text == "⏭️ Следующий товар")
 async def next_product(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     product = await get_next_product_for_user(message.from_user.id)
 
     if product:
@@ -512,11 +221,8 @@ async def next_product(message: types.Message):
     else:
         await message.answer("😔 Товаров больше нет")
 
-
 @dp.message(F.text == "✅ Купить")
 async def buy_product(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await message.answer(
         "🎉 Отличный выбор!\n\n"
         "📞 Свяжитесь с продавцом по указанному username.\n\n"
@@ -526,12 +232,9 @@ async def buy_product(message: types.Message):
         "Удачи в игре! 🎮"
     )
 
-
 # ================== ПРОДАВЕЦ ==================
 @dp.message(F.text == "💰 Продавец")
 async def seller_mode(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM products WHERE seller_id = ?", (message.from_user.id,))
@@ -542,31 +245,22 @@ async def seller_mode(message: types.Message):
         reply_markup=get_seller_keyboard()
     )
 
-
 # ================== ДОБАВЛЕНИЕ ТОВАРА ==================
 @dp.message(F.text == "➕ Добавить товар")
 async def add_product_start(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await state.set_state(ProductForm.title)
     await message.answer(
         "📝 Добавление нового товара\n\nВведите название товара:",
         reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
     )
 
-
 @dp.message(F.text == "❌ Отмена")
 async def cancel_operation(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await state.clear()
     await message.answer("❌ Операция отменена", reply_markup=get_seller_keyboard())
 
-
 @dp.message(ProductForm.title)
 async def process_title(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     if len(message.text) > 100:
         await message.answer("❌ Слишком длинное название! Максимум 100 символов.")
         return
@@ -574,29 +268,20 @@ async def process_title(message: types.Message, state: FSMContext):
     await state.set_state(ProductForm.description)
     await message.answer("📝 Введите описание товара:")
 
-
 @dp.message(ProductForm.description)
 async def process_description(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await state.update_data(description=message.text)
     await state.set_state(ProductForm.price)
     await message.answer("💰 Введите цену товара (например: 100 Robux):")
 
-
 @dp.message(ProductForm.price)
 async def process_price(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await state.update_data(price=message.text)
     await state.set_state(ProductForm.contact)
     await message.answer("👤 Введите ваш username для связи (без @):")
 
-
 @dp.message(ProductForm.contact)
 async def process_contact(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     data = await state.get_data()
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -620,12 +305,9 @@ async def process_contact(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Ошибка при сохранении: {e}")
     await state.clear()
 
-
 # ================== ПРОСМОТР ТОВАРОВ ==================
 @dp.message(F.text == "📋 Мои товары")
 async def show_my_products(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute(
@@ -647,12 +329,9 @@ async def show_my_products(message: types.Message):
         text += f"{idx}. #{product[0]} - {product[1]}\n   💰 {product[2]} | 👤 @{product[3]}\n\n"
     await message.answer(text, reply_markup=get_seller_keyboard())
 
-
 # ================== УПРАВЛЕНИЕ ТОВАРАМИ ==================
 @dp.message(F.text == "✏️ Управление товарами")
 async def manage_products(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute(
@@ -672,12 +351,9 @@ async def manage_products(message: types.Message):
     keyboard = create_products_keyboard(products)
     await message.answer(text, reply_markup=keyboard)
 
-
 # ================== УДАЛЕНИЕ ТОВАРА ==================
 @dp.callback_query(F.data.startswith("delete_"))
 async def delete_product_callback(callback: types.CallbackQuery):
-    global bot_activity_counter
-    bot_activity_counter += 1
     product_id = callback.data.split("_")[1]
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -697,10 +373,7 @@ async def delete_product_callback(callback: types.CallbackQuery):
         await callback.answer(f"❌ Ошибка при удалении: {e}")
     await callback.answer()
 
-
 async def show_updated_products_list(message: types.Message, user_id: int):
-    global bot_activity_counter
-    bot_activity_counter += 1
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute("""SELECT id, title, price FROM products WHERE seller_id = ? ORDER BY id DESC""", (user_id,))
@@ -717,12 +390,9 @@ async def show_updated_products_list(message: types.Message, user_id: int):
     keyboard = create_products_keyboard(products)
     await message.answer(text, reply_markup=keyboard)
 
-
 # ================== РЕДАКТИРОВАНИЕ ТОВАРА ==================
 @dp.callback_query(F.data.startswith("edit_"))
 async def edit_product_callback(callback: types.CallbackQuery, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     product_id = callback.data.split("_")[1]
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
@@ -755,11 +425,8 @@ async def edit_product_callback(callback: types.CallbackQuery, state: FSMContext
     await callback.message.answer(text, reply_markup=get_edit_options_keyboard())
     await callback.answer()
 
-
 @dp.message(EditProductForm.waiting_for_field)
 async def process_edit_field(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Редактирование отменено", reply_markup=get_seller_keyboard())
@@ -780,11 +447,8 @@ async def process_edit_field(message: types.Message, state: FSMContext):
         reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
     )
 
-
 @dp.message(EditProductForm.waiting_for_new_value)
 async def process_new_value(message: types.Message, state: FSMContext):
-    global bot_activity_counter
-    bot_activity_counter += 1
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Редактирование отменено", reply_markup=get_seller_keyboard())
@@ -808,28 +472,19 @@ async def process_new_value(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Ошибка при обновлении: {e}")
     await state.clear()
 
-
 # ================== ВОЗВРАТ В МЕНЮ ==================
 @dp.callback_query(F.data == "back_to_seller")
 async def back_to_seller_callback(callback: types.CallbackQuery):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await callback.message.delete()
     await seller_mode(callback.message)
 
-
 @dp.message(F.text == "🏠 Главное меню")
 async def main_menu(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     user_product_positions[message.from_user.id] = 0
     await cmd_start(message)
 
-
 @dp.message(F.text == "ℹ️ О боте")
 async def about_bot(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await message.answer(
         "🤖 Steal A Brainrot Shop Bot\n\n"
         "📌 Версия: 2.3\n🎮 Игра: Brainrot (Roblox)\n\n"
@@ -837,68 +492,39 @@ async def about_bot(message: types.Message):
         "Правила:\n• 🚫 Запрещено мошенничество\n• 💬 Общайтесь вежливо\n• ✅ Проверяйте сделки\n\nУдачи в игре! 🎮"
     )
 
-
 @dp.message()
 async def unknown_command(message: types.Message):
-    global bot_activity_counter
-    bot_activity_counter += 1
     await message.answer("🤔 Я не понял вашу команду.\n\nИспользуйте кнопки меню или команду /start",
                          reply_markup=get_main_menu_keyboard())
-
 
 # ================== ЗАПУСК БОТА ==================
 async def main():
     try:
-        print("=" * 70)
-        print("🚀 Запуск Brainrot Shop Bot v2.3...")
-        print("=" * 70)
-
-        # Запускаем Flask сервер
-        keep_alive()
-        print("✅ Веб-сервер запущен на порту 8080")
-
-        # Запускаем улучшенный keep-alive для бота
-        asyncio.create_task(bot_keep_alive())
-        print("🤖 Bot keep-alive активирован (каждые 20 секунд)")
-
-        # Запускаем системный пинг
-        asyncio.create_task(system_ping())
-        print("🔁 System ping активирован (каждые 25 секунд)")
-
-        # Запускаем фоновый keep-alive
-        print("🌐 Фоновый keep-alive запущен")
+        logger.info("=" * 70)
+        logger.info("🚀 Запуск Brainrot Shop Bot v2.3...")
+        logger.info("=" * 70)
 
         # Инициализируем базу данных
         init_database()
 
         # Получаем информацию о боте
         bot_info = await bot.get_me()
-        print(f"🤖 Бот подключен: @{bot_info.username}")
-        print(f"👤 Имя бота: {bot_info.first_name}")
-        print(f"🆔 ID бота: {bot_info.id}")
+        logger.info(f"🤖 Бот подключен: @{bot_info.username}")
+        logger.info(f"👤 Имя бота: {bot_info.first_name}")
+        logger.info(f"🆔 ID бота: {bot_info.id}")
 
-        # Удаляем вебхук
+        # Удаляем вебхук (для Bothost это безопасно)
         await bot.delete_webhook(drop_pending_updates=True)
 
-        print("🔄 Запускаю polling...")
-        print("=" * 70)
-        print("✅ БОТ УСПЕШНО ЗАПУЩЕН!")
-        print("")
-        print("🛡️  УЛУЧШЕННАЯ ЗАЩИТА ОТ СНА:")
-        print("   • Bot keep-alive каждые 20 секунд")
-        print("   • System ping каждые 25 секунд")
-        print("   • Фоновый keep-alive каждые 30 секунд")
-        print("   • UptimeRobot каждые 5 минут")
-        print("")
-        print("📊 Товары показываются ПО ПОРЯДКУ: 1 → 2 → 3 → 4 → 5 → ...")
-        print("")
-        print("🔗 Для проверки работы бота:")
-        print("   • /ping в Telegram - проверить бота")
-        print("   • /status в Telegram - полный статус")
-        print("=" * 70)
-        print("🕒 Бот будет работать 24/7 без выключений!")
-        print("⏸️  Для остановки нажмите Ctrl+C")
-        print("=" * 70)
+        logger.info("🔄 Запускаю polling...")
+        logger.info("=" * 70)
+        logger.info("✅ БОТ УСПЕШНО ЗАПУЩЕН!")
+        logger.info("")
+        logger.info("📊 Товары показываются ПО ПОРЯДКУ: 1 → 2 → 3 → 4 → 5 → ...")
+        logger.info("")
+        logger.info("🔗 Для проверки работы бота:")
+        logger.info("   • /status в Telegram - статус бота")
+        logger.info("=" * 70)
 
         # Запускаем бота с обработкой ошибок
         restart_count = 0
@@ -915,18 +541,17 @@ async def main():
         logger.error(f"❌ Достигнут максимум перезапусков ({max_restarts}). Остановка.")
 
     except KeyboardInterrupt:
-        print("\n" + "=" * 50)
-        print("👋 Бот остановлен пользователем")
-        print("=" * 50)
+        logger.info("\n" + "=" * 50)
+        logger.info("👋 Бот остановлен пользователем")
+        logger.info("=" * 50)
     except Exception as e:
         logger.error(f"💥 Критическая ошибка: {e}")
-        print("🔄 Попробуйте перезапустить проект")
-
+        logger.info("🔄 Попробуйте перезапустить проект")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n👋 Завершение работы")
+        logger.info("\n👋 Завершение работы")
     except Exception as e:
-        print(f"💥 Фатальная ошибка: {e}")
+        logger.error(f"💥 Фатальная ошибка: {e}")
