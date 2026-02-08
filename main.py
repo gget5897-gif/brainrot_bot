@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.client.default import DefaultBotProperties  # Импортируем для новой версии aiogram
+from aiogram.client.default import DefaultBotProperties
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ===================
 logging.basicConfig(
@@ -21,30 +21,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-# Получаем токен из переменных окружения
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+# Получаем токен ИЗ ПЕРЕМЕННОЙ "TOKEN", которую вы создали в Bothost
+TOKEN = os.environ.get("", "")
 
 if not TOKEN:
-    logger.error("❌ Токен бота не найден!")
-    logger.info("ℹ️ Установите переменную окружения TELEGRAM_BOT_TOKEN в настройках Bothost")
+    logger.error("❌ Токен бота не найден в переменной 'TOKEN'!")
+    logger.info("ℹ️ Установите переменную окружения TOKEN в настройках Bothost")
     exit(1)
 
 # ==================== ИНИЦИАЛИЗАЦИЯ БОТА ===================
-try:
-    # НОВЫЙ синтаксис для aiogram 3.7.0+
-    bot = Bot(
-        token=TOKEN, 
-        default=DefaultBotProperties(parse_mode="HTML")  # Используем DefaultBotProperties
-    )
-    storage = MemoryStorage()
-    dp = Dispatcher(storage=storage)
-    logger.info("✅ Бот инициализирован успешно")
-except Exception as e:
-    logger.error(f"❌ Ошибка инициализации бота: {e}")
-    exit(1)
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
 # ================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================
 user_product_positions = {}
+
 
 # ================== СОСТОЯНИЯ (FSM) ==================
 class ProductForm(StatesGroup):
@@ -53,9 +45,11 @@ class ProductForm(StatesGroup):
     price = State()
     contact = State()
 
+
 class EditProductForm(StatesGroup):
     waiting_for_field = State()
     waiting_for_new_value = State()
+
 
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
@@ -80,6 +74,7 @@ def init_database():
         logger.error(f"❌ Ошибка БД: {e}")
         return False
 
+
 # ================== КЛАВИАТУРЫ ==================
 def get_main_menu_keyboard():
     keyboard = [
@@ -89,6 +84,7 @@ def get_main_menu_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
+
 def get_buyer_keyboard():
     keyboard = [
         [KeyboardButton(text="⏭️ Следующий товар")],
@@ -96,6 +92,7 @@ def get_buyer_keyboard():
         [KeyboardButton(text="🏠 Главное меню")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
 
 def get_seller_keyboard():
     keyboard = [
@@ -105,6 +102,7 @@ def get_seller_keyboard():
         [KeyboardButton(text="🏠 Главное меню")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
 
 def create_products_keyboard(products):
     builder = InlineKeyboardBuilder()
@@ -122,6 +120,7 @@ def create_products_keyboard(products):
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_seller"))
     return builder.as_markup()
 
+
 def get_edit_options_keyboard():
     keyboard = [
         [KeyboardButton(text="📌 Название")],
@@ -131,6 +130,7 @@ def get_edit_options_keyboard():
         [KeyboardButton(text="❌ Отмена")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
 
 # ================== ФУНКЦИИ ДЛЯ РАБОТЫ С ТОВАРАМИ ==================
 async def get_next_product_for_user(user_id):
@@ -162,6 +162,7 @@ async def get_next_product_for_user(user_id):
         logger.error(f"❌ Ошибка при получении товара: {e}")
         return None
 
+
 async def get_first_product():
     """Получение первого товара"""
     try:
@@ -175,6 +176,7 @@ async def get_first_product():
         logger.error(f"❌ Ошибка при получении первого товара: {e}")
         return None
 
+
 # ================== ОБРАБОТЧИКИ КОМАНД ==================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -184,6 +186,7 @@ async def cmd_start(message: types.Message):
         "🎮 Steal A Brainrot Shop\n\nВыберите свою роль:",
         reply_markup=get_main_menu_keyboard()
     )
+
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
@@ -195,6 +198,7 @@ async def cmd_help(message: types.Message):
         "Используйте кнопки меню для навигации."
     )
 
+
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
     """Обработчик команды /status"""
@@ -203,7 +207,7 @@ async def cmd_status(message: types.Message):
     c.execute("SELECT COUNT(*) FROM products")
     total_products = c.fetchone()[0]
     conn.close()
-    
+
     await message.answer(
         f"🤖 Статус бота:\n\n"
         f"✅ Онлайн и работает\n"
@@ -211,6 +215,7 @@ async def cmd_status(message: types.Message):
         f"📊 Товаров в базе: {total_products}\n"
         f"👥 Пользователей в памяти: {len(user_product_positions)}"
     )
+
 
 # ================== ПОКУПАТЕЛЬ ==================
 @dp.message(F.text == "🛍️ Покупатель")
@@ -234,6 +239,7 @@ async def buyer_mode(message: types.Message):
             reply_markup=get_main_menu_keyboard()
         )
 
+
 @dp.message(F.text == "⏭️ Следующий товар")
 async def next_product(message: types.Message):
     """Следующий товар"""
@@ -251,6 +257,7 @@ async def next_product(message: types.Message):
     else:
         await message.answer("😔 Товаров больше нет")
 
+
 @dp.message(F.text == "✅ Купить")
 async def buy_product(message: types.Message):
     """Покупка товара"""
@@ -263,6 +270,7 @@ async def buy_product(message: types.Message):
         "Удачи в игре! 🎮"
     )
 
+
 # ================== ПРОДАВЕЦ ==================
 @dp.message(F.text == "💰 Продавец")
 async def seller_mode(message: types.Message):
@@ -272,11 +280,12 @@ async def seller_mode(message: types.Message):
     c.execute("SELECT COUNT(*) FROM products WHERE seller_id = ?", (message.from_user.id,))
     count = c.fetchone()[0]
     conn.close()
-    
+
     await message.answer(
         f"💰 Режим продавца\n\n📊 Ваших товаров: {count}\n\nДоступные действия:",
         reply_markup=get_seller_keyboard()
     )
+
 
 # ================== ДОБАВЛЕНИЕ ТОВАРА ==================
 @dp.message(F.text == "➕ Добавить товар")
@@ -286,16 +295,18 @@ async def add_product_start(message: types.Message, state: FSMContext):
     await message.answer(
         "📝 Добавление нового товара\n\nВведите название товара:",
         reply_markup=ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="❌ Отмена")]], 
+            keyboard=[[KeyboardButton(text="❌ Отмена")]],
             resize_keyboard=True
         )
     )
+
 
 @dp.message(F.text == "❌ Отмена")
 async def cancel_operation(message: types.Message, state: FSMContext):
     """Отмена операции"""
     await state.clear()
     await message.answer("❌ Операция отменена", reply_markup=get_seller_keyboard())
+
 
 @dp.message(ProductForm.title)
 async def process_title(message: types.Message, state: FSMContext):
@@ -307,6 +318,7 @@ async def process_title(message: types.Message, state: FSMContext):
     await state.set_state(ProductForm.description)
     await message.answer("📝 Введите описание товара:")
 
+
 @dp.message(ProductForm.description)
 async def process_description(message: types.Message, state: FSMContext):
     """Обработка описания товара"""
@@ -314,12 +326,14 @@ async def process_description(message: types.Message, state: FSMContext):
     await state.set_state(ProductForm.price)
     await message.answer("💰 Введите цену товара (например: 100 Robux):")
 
+
 @dp.message(ProductForm.price)
 async def process_price(message: types.Message, state: FSMContext):
     """Обработка цены товара"""
     await state.update_data(price=message.text)
     await state.set_state(ProductForm.contact)
     await message.answer("👤 Введите ваш username для связи (без @):")
+
 
 @dp.message(ProductForm.contact)
 async def process_contact(message: types.Message, state: FSMContext):
@@ -335,7 +349,7 @@ async def process_contact(message: types.Message, state: FSMContext):
         )
         conn.commit()
         conn.close()
-        
+
         await message.answer(
             f"✅ Товар добавлен!\n\n"
             f"📌 Название: {data['title']}\n"
@@ -348,6 +362,7 @@ async def process_contact(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Ошибка при сохранении: {e}")
     finally:
         await state.clear()
+
 
 # ================== ПРОСМОТР ТОВАРОВ ==================
 @dp.message(F.text == "📋 Мои товары")
@@ -374,6 +389,7 @@ async def show_my_products(message: types.Message):
         text += f"{idx}. #{product[0]} - {product[1]}\n   💰 {product[2]} | 👤 @{product[3]}\n\n"
     await message.answer(text, reply_markup=get_seller_keyboard())
 
+
 # ================== УПРАВЛЕНИЕ ТОВАРАМИ ==================
 @dp.message(F.text == "✏️ Управление товарами")
 async def manage_products(message: types.Message):
@@ -397,6 +413,7 @@ async def manage_products(message: types.Message):
     keyboard = create_products_keyboard(products)
     await message.answer(text, reply_markup=keyboard)
 
+
 # ================== УДАЛЕНИЕ ТОВАРА ==================
 @dp.callback_query(F.data.startswith("delete_"))
 async def delete_product_callback(callback: types.CallbackQuery):
@@ -405,32 +422,33 @@ async def delete_product_callback(callback: types.CallbackQuery):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        c.execute("SELECT title FROM products WHERE id = ? AND seller_id = ?", 
-                 (product_id, callback.from_user.id))
+        c.execute("SELECT title FROM products WHERE id = ? AND seller_id = ?",
+                  (product_id, callback.from_user.id))
         product = c.fetchone()
-        
+
         if not product:
             await callback.answer("❌ Товар не найден или вы не владелец!")
             return
-            
+
         c.execute("DELETE FROM products WHERE id = ?", (product_id,))
         conn.commit()
         conn.close()
-        
+
         await callback.message.edit_text(
             f"✅ Товар удален!\n\n🗑️ Удален товар: {product[0]}\n\nСписок обновлен:")
         await show_updated_products_list(callback.message, callback.from_user.id)
-        
+
     except Exception as e:
         await callback.answer(f"❌ Ошибка при удалении: {e}")
     await callback.answer()
+
 
 async def show_updated_products_list(message: types.Message, user_id: int):
     """Показать обновленный список товаров"""
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
-    c.execute("""SELECT id, title, price FROM products WHERE seller_id = ? ORDER BY id DESC""", 
-             (user_id,))
+    c.execute("""SELECT id, title, price FROM products WHERE seller_id = ? ORDER BY id DESC""",
+              (user_id,))
     products = c.fetchall()
     conn.close()
 
@@ -443,6 +461,7 @@ async def show_updated_products_list(message: types.Message, user_id: int):
         text += f"#{product[0]} - {product[1]} ({product[2]})\n"
     keyboard = create_products_keyboard(products)
     await message.answer(text, reply_markup=keyboard)
+
 
 # ================== РЕДАКТИРОВАНИЕ ТОВАРА ==================
 @dp.callback_query(F.data.startswith("edit_"))
@@ -480,6 +499,7 @@ async def edit_product_callback(callback: types.CallbackQuery, state: FSMContext
     await callback.message.answer(text, reply_markup=get_edit_options_keyboard())
     await callback.answer()
 
+
 @dp.message(EditProductForm.waiting_for_field)
 async def process_edit_field(message: types.Message, state: FSMContext):
     """Обработка выбора поля для редактирования"""
@@ -494,7 +514,7 @@ async def process_edit_field(message: types.Message, state: FSMContext):
         "💰 Цена": "price",
         "👤 Контакты": "contact"
     }
-    
+
     if message.text not in field_map:
         await message.answer("❌ Пожалуйста, выберите поле из списка")
         return
@@ -502,19 +522,20 @@ async def process_edit_field(message: types.Message, state: FSMContext):
     field = field_map[message.text]
     data = await state.get_data()
     current_value = data[f"edit_product_{field}"]
-    
+
     await state.update_data(edit_field=field)
     await state.set_state(EditProductForm.waiting_for_new_value)
-    
+
     await message.answer(
         f"✏️ Редактирование {message.text.lower()}\n\n"
         f"Текущее значение: {current_value}\n\n"
         f"Введите новое значение:",
         reply_markup=ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="❌ Отмена")]], 
+            keyboard=[[KeyboardButton(text="❌ Отмена")]],
             resize_keyboard=True
         )
     )
+
 
 @dp.message(EditProductForm.waiting_for_new_value)
 async def process_new_value(message: types.Message, state: FSMContext):
@@ -532,19 +553,19 @@ async def process_new_value(message: types.Message, state: FSMContext):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        
+
         field_column = {
             "title": "title",
-            "description": "description", 
+            "description": "description",
             "price": "price",
             "contact": "contact"
         }[field]
-        
-        c.execute(f"UPDATE products SET {field_column} = ? WHERE id = ?", 
-                 (new_value, product_id))
+
+        c.execute(f"UPDATE products SET {field_column} = ? WHERE id = ?",
+                  (new_value, product_id))
         conn.commit()
         conn.close()
-        
+
         await message.answer(
             f"✅ {field.capitalize()} успешно обновлено!\n\n"
             f"Новое значение: {new_value}",
@@ -555,6 +576,7 @@ async def process_new_value(message: types.Message, state: FSMContext):
     finally:
         await state.clear()
 
+
 # ================== ВОЗВРАТ В МЕНЮ ==================
 @dp.callback_query(F.data == "back_to_seller")
 async def back_to_seller_callback(callback: types.CallbackQuery):
@@ -562,11 +584,13 @@ async def back_to_seller_callback(callback: types.CallbackQuery):
     await callback.message.delete()
     await seller_mode(callback.message)
 
+
 @dp.message(F.text == "🏠 Главное меню")
 async def main_menu(message: types.Message):
     """Возврат в главное меню"""
     user_product_positions[message.from_user.id] = 0
     await cmd_start(message)
+
 
 @dp.message(F.text == "ℹ️ О боте")
 async def about_bot(message: types.Message):
@@ -586,6 +610,7 @@ async def about_bot(message: types.Message):
         "Удачи в игре! 🎮"
     )
 
+
 @dp.message()
 async def unknown_command(message: types.Message):
     """Обработчик неизвестных команд"""
@@ -594,6 +619,7 @@ async def unknown_command(message: types.Message):
         "Используйте кнопки меню или команду /start",
         reply_markup=get_main_menu_keyboard()
     )
+
 
 # ================== ЗАПУСК БОТА ==================
 async def main():
@@ -604,20 +630,13 @@ async def main():
         logger.info("=" * 70)
 
         # Инициализация базы данных
-        if not init_database():
-            logger.error("❌ Не удалось инициализировать базу данных")
-            return
+        init_database()
 
         # Получаем информацию о боте
-        try:
-            bot_info = await bot.get_me()
-            logger.info(f"✅ Бот подключен: @{bot_info.username}")
-            logger.info(f"👤 Имя бота: {bot_info.first_name}")
-            logger.info(f"🆔 ID бота: {bot_info.id}")
-        except Exception as e:
-            logger.error(f"❌ Не удалось подключиться к боту: {e}")
-            logger.error("ℹ️ Проверьте токен в BotFather")
-            return
+        bot_info = await bot.get_me()
+        logger.info(f"✅ Бот подключен: @{bot_info.username}")
+        logger.info(f"👤 Имя бота: {bot_info.first_name}")
+        logger.info(f"🆔 ID бота: {bot_info.id}")
 
         # Удаляем вебхук
         await bot.delete_webhook(drop_pending_updates=True)
@@ -635,6 +654,6 @@ async def main():
     except Exception as e:
         logger.error(f"💥 Критическая ошибка: {e}")
 
+
 if __name__ == "__main__":
     asyncio.run(main())
-
