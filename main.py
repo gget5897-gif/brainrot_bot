@@ -20,14 +20,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
     exit(1)
 
 # ==================== СПИСОК АДМИНОВ ===================
-ADMIN_IDS = [1]
+ADMIN_IDS = [1593674702]
 
 # ==================== НАСТРОЙКИ ЛИМИТОВ ===================
 DAILY_LIMIT = 6
@@ -1878,3 +1878,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
