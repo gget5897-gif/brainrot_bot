@@ -3,7 +3,6 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 import os
-
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -28,7 +27,7 @@ if not TOKEN:
     exit(1)
 
 # ==================== СПИСОК АДМИНОВ ===================
-ADMIN_IDS = []
+ADMIN_IDS = [1]
 
 # ==================== НАСТРОЙКИ ЛИМИТОВ ===================
 DAILY_LIMIT = 6
@@ -40,7 +39,7 @@ dp = Dispatcher(storage=storage)
 
 # ================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================
 user_product_positions = {}
-admin_pages = {}  # Для пагинации в админке
+admin_pages = {}
 
 # ================== СОСТОЯНИЯ (FSM) ==================
 class ProductForm(StatesGroup):
@@ -64,7 +63,7 @@ class AdminActionForm(StatesGroup):
 
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
-    """Инициализация базы данных"""
+    """Инициализация базы данных (создаёт таблицы, если их нет)"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -184,10 +183,7 @@ async def get_first_product():
         return None
 
 def can_user_add_product(user_id):
-    """
-    Проверяет, может ли пользователь добавить товар.
-    Возвращает (может_добавить, сообщение_об_ошибке)
-    """
+    """Проверяет, может ли пользователь добавить товар."""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -239,23 +235,16 @@ def can_user_add_product(user_id):
         return False, "❌ Произошла ошибка при проверке лимита."
 
 def add_to_whitelist(user_id, admin_id):
-    """Добавляет пользователя в белый список"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-
-        c.execute(
-            "UPDATE users SET is_whitelisted = 1 WHERE user_id = ?",
-            (user_id,)
-        )
-
+        c.execute("UPDATE users SET is_whitelisted = 1 WHERE user_id = ?", (user_id,))
         c.execute(
             """INSERT INTO admin_actions 
                (admin_id, action_type, target_id, target_type, details) 
                VALUES (?, ?, ?, ?, ?)""",
             (admin_id, "add_to_whitelist", user_id, "user", f"Добавлен в белый список")
         )
-
         conn.commit()
         conn.close()
         return True, "✅ Пользователь добавлен в белый список."
@@ -264,23 +253,16 @@ def add_to_whitelist(user_id, admin_id):
         return False, f"❌ Ошибка: {e}"
 
 def remove_from_whitelist(user_id, admin_id):
-    """Удаляет пользователя из белого списка"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-
-        c.execute(
-            "UPDATE users SET is_whitelisted = 0 WHERE user_id = ?",
-            (user_id,)
-        )
-
+        c.execute("UPDATE users SET is_whitelisted = 0 WHERE user_id = ?", (user_id,))
         c.execute(
             """INSERT INTO admin_actions 
                (admin_id, action_type, target_id, target_type, details) 
                VALUES (?, ?, ?, ?, ?)""",
             (admin_id, "remove_from_whitelist", user_id, "user", f"Удален из белого списка")
         )
-
         conn.commit()
         conn.close()
         return True, "✅ Пользователь удален из белого списка."
@@ -289,24 +271,18 @@ def remove_from_whitelist(user_id, admin_id):
         return False, f"❌ Ошибка: {e}"
 
 def is_user_whitelisted(user_id):
-    """Проверяет, находится ли пользователь в белом списке"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        c.execute(
-            "SELECT is_whitelisted FROM users WHERE user_id = ?",
-            (user_id,)
-        )
+        c.execute("SELECT is_whitelisted FROM users WHERE user_id = ?", (user_id,))
         result = c.fetchone()
         conn.close()
-
         return result and result[0] == 1
     except Exception as e:
         logger.error(f"❌ Ошибка при проверке белого списка: {e}")
         return False
 
 def get_whitelist():
-    """Возвращает список пользователей в белом списке"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -322,7 +298,6 @@ def get_whitelist():
         return []
 
 def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
-    """Логирование действий админа"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -340,14 +315,12 @@ def log_admin_action(admin_id, action_type, target_id=None, target_type=None, re
         return False
 
 def check_if_user_banned(user_id):
-    """Проверка, забанен ли пользователь"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("SELECT is_banned, ban_reason FROM users WHERE user_id = ?", (user_id,))
         result = c.fetchone()
         conn.close()
-
         if result and result[0] == 1:
             return True, result[1]
         return False, None
@@ -356,7 +329,6 @@ def check_if_user_banned(user_id):
         return False, None
 
 def get_all_products():
-    """Получает все товары для админки"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -379,7 +351,6 @@ def get_all_products():
         return []
 
 def get_product_by_id(product_id):
-    """Получает товар по ID"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -392,7 +363,6 @@ def get_product_by_id(product_id):
         return None
 
 def get_all_products_count():
-    """Получает количество товаров"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -405,16 +375,13 @@ def get_all_products_count():
         return 0
 
 def get_user_by_id_or_username(search_term):
-    """Находит пользователя по ID или username"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        
         if search_term.isdigit():
             c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE user_id = ?", (int(search_term),))
         else:
             c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE username = ?", (search_term,))
-        
         user = c.fetchone()
         conn.close()
         return user
@@ -423,12 +390,10 @@ def get_user_by_id_or_username(search_term):
         return None
 
 def ban_user_in_db(user_id, reason, admin_id):
-    """Блокирует пользователя в базе данных"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("UPDATE users SET is_banned = 1, ban_reason = ? WHERE user_id = ?", (reason, user_id))
-        
         log_admin_action(
             admin_id=admin_id,
             action_type="ban_user",
@@ -437,7 +402,6 @@ def ban_user_in_db(user_id, reason, admin_id):
             reason=reason,
             details=f"Забанен пользователь"
         )
-        
         conn.commit()
         conn.close()
         return True
@@ -446,12 +410,10 @@ def ban_user_in_db(user_id, reason, admin_id):
         return False
 
 def unban_user_in_db(user_id, admin_id):
-    """Разблокирует пользователя в базе данных"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("UPDATE users SET is_banned = 0, ban_reason = NULL WHERE user_id = ?", (user_id,))
-        
         log_admin_action(
             admin_id=admin_id,
             action_type="unban_user",
@@ -460,7 +422,6 @@ def unban_user_in_db(user_id, admin_id):
             reason="Разбан",
             details=f"Разбанен пользователь"
         )
-        
         conn.commit()
         conn.close()
         return True
@@ -521,7 +482,6 @@ def get_edit_options_keyboard():
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_admin_keyboard():
-    """Клавиатура для админ-панели"""
     keyboard = [
         [KeyboardButton(text="👁 Просмотреть все товары")],
         [KeyboardButton(text="🔍 Найти товары пользователя")],
@@ -535,7 +495,6 @@ def get_admin_keyboard():
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_whitelist_keyboard():
-    """Клавиатура для управления белым списком"""
     keyboard = [
         [KeyboardButton(text="➕ Добавить в белый список")],
         [KeyboardButton(text="➖ Удалить из белого списка")],
@@ -545,17 +504,15 @@ def get_whitelist_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
-# ================== ОСНОВНЫЕ КОМАНДЫ БОТА ==================
+# ================== ОСНОВНЫЕ КОМАНДЫ ==================
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    """Обработчик команды /start"""
     get_or_create_user(
         user_id=message.from_user.id,
         username=message.from_user.username,
         first_name=message.from_user.first_name,
         last_name=message.from_user.last_name
     )
-
     user_product_positions[message.from_user.id] = 0
     await message.answer(
         "🎮 Steal A Brainrot Shop\n\nВыберите свою роль:",
@@ -564,7 +521,6 @@ async def cmd_start(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    """Обработчик команды /help"""
     await message.answer(
         "🆘 Помощь\n\nОсновные команды:\n"
         "/start - начать работу\n"
@@ -578,9 +534,7 @@ async def cmd_help(message: types.Message):
 
 @dp.message(Command("mylimit"))
 async def cmd_mylimit(message: types.Message):
-    """Показывает текущий лимит пользователя"""
     user_id = message.from_user.id
-
     is_banned, ban_reason = check_if_user_banned(user_id)
     if is_banned:
         await message.answer(
@@ -606,7 +560,6 @@ async def cmd_mylimit(message: types.Message):
 
         if user_info:
             is_whitelisted, daily_limit = user_info
-
             time_24h_ago = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
             conn = sqlite3.connect('brainrot_shop.db')
             c = conn.cursor()
@@ -637,22 +590,18 @@ async def cmd_mylimit(message: types.Message):
             await message.answer(response, parse_mode="Markdown")
         else:
             await message.answer("❌ Не удалось получить информацию о лимитах.")
-
     except Exception as e:
         logger.error(f"❌ Ошибка в cmd_mylimit: {e}")
         await message.answer("❌ Произошла ошибка при получении информации.")
 
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
-    """Обработчик команды /status"""
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM products")
     total_products = c.fetchone()[0]
-
     c.execute("SELECT COUNT(*) FROM users WHERE is_whitelisted = 1")
     whitelisted_users = c.fetchone()[0]
-
     conn.close()
 
     await message.answer(
@@ -667,11 +616,9 @@ async def cmd_status(message: types.Message):
 # ================== АДМИН КОМАНДЫ ==================
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message):
-    """Проверяем, является ли пользователь админом, и показываем панель"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа к этой команде.")
         return
-
     user_product_positions[message.from_user.id] = 0
     await message.answer(
         "👨‍💻 **Панель администратора**\n\n"
@@ -680,14 +627,12 @@ async def cmd_admin(message: types.Message):
         parse_mode="Markdown"
     )
 
-# ================== ФУНКЦИИ БЕЛОГО СПИСКА ==================
+# ================== БЕЛЫЙ СПИСОК ==================
 @dp.message(F.text == "⚪ Управление белым списком")
 async def admin_whitelist_menu(message: types.Message):
-    """Меню управления белым списком"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await message.answer(
         "⚪ **Управление белого списка**\n\n"
         "Пользователи в белом списке:\n"
@@ -700,11 +645,9 @@ async def admin_whitelist_menu(message: types.Message):
 
 @dp.message(F.text == "➕ Добавить в белый список")
 async def admin_add_to_whitelist_start(message: types.Message, state: FSMContext):
-    """Начало добавления пользователя в белый список"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await state.set_state(AdminActionForm.waiting_for_whitelist_user)
     await message.answer(
         "➕ **Добавление в белый список**\n\n"
@@ -721,7 +664,6 @@ async def admin_add_to_whitelist_start(message: types.Message, state: FSMContext
 
 @dp.message(AdminActionForm.waiting_for_whitelist_user)
 async def process_add_to_whitelist(message: types.Message, state: FSMContext):
-    """Обработка добавления в белый список"""
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Добавление отменено.", reply_markup=get_whitelist_keyboard())
@@ -738,10 +680,7 @@ async def process_add_to_whitelist(message: types.Message, state: FSMContext):
             user_id = int(search_term)
             c.execute("SELECT username FROM users WHERE user_id = ?", (user_id,))
             user = c.fetchone()
-            if user:
-                username = user[0]
-            else:
-                username = None
+            username = user[0] if user else None
         else:
             c.execute("SELECT user_id FROM users WHERE username = ?", (search_term,))
             user = c.fetchone()
@@ -766,16 +705,9 @@ async def process_add_to_whitelist(message: types.Message, state: FSMContext):
             return
 
         if not username:
-            c.execute(
-                """INSERT INTO users (user_id, is_whitelisted) 
-                   VALUES (?, 1)""",
-                (user_id,)
-            )
+            c.execute("INSERT INTO users (user_id, is_whitelisted) VALUES (?, 1)", (user_id,))
         else:
-            c.execute(
-                "UPDATE users SET is_whitelisted = 1 WHERE user_id = ?",
-                (user_id,)
-            )
+            c.execute("UPDATE users SET is_whitelisted = 1 WHERE user_id = ?", (user_id,))
 
         c.execute(
             """INSERT INTO admin_actions 
@@ -787,16 +719,13 @@ async def process_add_to_whitelist(message: types.Message, state: FSMContext):
 
         conn.commit()
         conn.close()
-
         await state.clear()
-
         user_info = f"@{username}" if username else f"ID: {user_id}"
         await message.answer(
             f"✅ Пользователь {user_info} добавлен в белый список!\n\n"
             f"Теперь он может добавлять неограниченное количество товаров.",
             reply_markup=get_whitelist_keyboard()
         )
-
         try:
             await bot.send_message(
                 user_id,
@@ -808,7 +737,6 @@ async def process_add_to_whitelist(message: types.Message, state: FSMContext):
             )
         except:
             pass
-
     except Exception as e:
         logger.error(f"❌ Ошибка в process_add_to_whitelist: {e}")
         await message.answer("❌ Произошла ошибка при добавлении в белый список.")
@@ -816,11 +744,9 @@ async def process_add_to_whitelist(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "➖ Удалить из белого списка")
 async def admin_remove_from_whitelist_start(message: types.Message, state: FSMContext):
-    """Начало удаления пользователя из белого списка"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await state.set_state(AdminActionForm.waiting_for_unwhitelist_user)
     await message.answer(
         "➖ **Удаление из белого списка**\n\n"
@@ -837,7 +763,6 @@ async def admin_remove_from_whitelist_start(message: types.Message, state: FSMCo
 
 @dp.message(AdminActionForm.waiting_for_unwhitelist_user)
 async def process_remove_from_whitelist(message: types.Message, state: FSMContext):
-    """Обработка удаления из белого списка"""
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Удаление отменено.", reply_markup=get_whitelist_keyboard())
@@ -854,6 +779,7 @@ async def process_remove_from_whitelist(message: types.Message, state: FSMContex
             user_id = int(search_term)
             c.execute("SELECT username, is_whitelisted FROM users WHERE user_id = ?", (user_id,))
             result = c.fetchone()
+            username = result[0] if result else None
         else:
             c.execute("SELECT user_id, username, is_whitelisted FROM users WHERE username = ?", (search_term,))
             result = c.fetchone()
@@ -878,11 +804,7 @@ async def process_remove_from_whitelist(message: types.Message, state: FSMContex
             await state.clear()
             return
 
-        c.execute(
-            "UPDATE users SET is_whitelisted = 0 WHERE user_id = ?",
-            (user_id,)
-        )
-
+        c.execute("UPDATE users SET is_whitelisted = 0 WHERE user_id = ?", (user_id,))
         c.execute(
             """INSERT INTO admin_actions 
                (admin_id, action_type, target_id, target_type, details) 
@@ -890,19 +812,15 @@ async def process_remove_from_whitelist(message: types.Message, state: FSMContex
             (admin_id, "remove_from_whitelist", user_id, "user",
              f"Удален из белого списка. Username: {username or 'неизвестен'}")
         )
-
         conn.commit()
         conn.close()
-
         await state.clear()
-
         user_info = f"@{username}" if username else f"ID: {user_id}"
         await message.answer(
             f"✅ Пользователь {user_info} удален из белого списка.\n\n"
             f"Теперь на него будут распространяться обычные лимиты ({DAILY_LIMIT} товаров/сутки).",
             reply_markup=get_whitelist_keyboard()
         )
-
         try:
             await bot.send_message(
                 user_id,
@@ -914,7 +832,6 @@ async def process_remove_from_whitelist(message: types.Message, state: FSMContex
             )
         except:
             pass
-
     except Exception as e:
         logger.error(f"❌ Ошибка в process_remove_from_whitelist: {e}")
         await message.answer("❌ Произошла ошибка при удалении из белого списка.")
@@ -922,22 +839,14 @@ async def process_remove_from_whitelist(message: types.Message, state: FSMContex
 
 @dp.message(F.text == "👁 Показать белый список")
 async def admin_show_whitelist(message: types.Message):
-    """Показывает список пользователей в белом списке"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     users = get_whitelist()
-
     if not users:
-        await message.answer(
-            "📭 Белый список пуст.",
-            reply_markup=get_whitelist_keyboard()
-        )
+        await message.answer("📭 Белый список пуст.", reply_markup=get_whitelist_keyboard())
         return
-
     text = "⚪ **Пользователи в белом списке:**\n\n"
-
     for user in users:
         user_id, username, first_name, last_name = user
         name_parts = []
@@ -945,43 +854,32 @@ async def admin_show_whitelist(message: types.Message):
             name_parts.append(first_name)
         if last_name:
             name_parts.append(last_name)
-
         full_name = " ".join(name_parts) if name_parts else "Без имени"
         user_ident = f"@{username}" if username else f"ID: {user_id}"
-
         text += f"• {full_name} ({user_ident})\n"
-
     text += f"\nВсего: **{len(users)}** пользователей"
-
     await message.answer(text, parse_mode="Markdown", reply_markup=get_whitelist_keyboard())
 
 @dp.message(F.text == "📊 Статистика лимитов")
 async def admin_limits_stats(message: types.Message):
-    """Статистика по лимитам"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-
         c.execute("SELECT COUNT(*) FROM users")
         total_users = c.fetchone()[0]
-
         c.execute("SELECT COUNT(*) FROM users WHERE is_whitelisted = 1")
         whitelisted = c.fetchone()[0]
-
         c.execute("SELECT COUNT(*) FROM users WHERE is_banned = 1")
         banned = c.fetchone()[0]
 
         time_24h_ago = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-
         c.execute("""
             SELECT u.user_id, u.username, COUNT(p.id) as product_count
             FROM users u
-            LEFT JOIN products p ON u.user_id = p.seller_id 
-                AND p.created_at >= ?
+            LEFT JOIN products p ON u.user_id = p.seller_id AND p.created_at >= ?
             WHERE u.is_whitelisted = 0 AND u.is_banned = 0
             GROUP BY u.user_id
             HAVING product_count >= ?
@@ -992,15 +890,13 @@ async def admin_limits_stats(message: types.Message):
         c.execute("""
             SELECT u.user_id, u.username, COUNT(p.id) as product_count
             FROM users u
-            LEFT JOIN products p ON u.user_id = p.seller_id 
-                AND p.created_at >= ?
+            LEFT JOIN products p ON u.user_id = p.seller_id AND p.created_at >= ?
             WHERE u.is_banned = 0
             GROUP BY u.user_id
             ORDER BY product_count DESC
             LIMIT 10
         """, (time_24h_ago,))
         top_active = c.fetchall()
-
         conn.close()
 
         text = (
@@ -1011,18 +907,15 @@ async def admin_limits_stats(message: types.Message):
             f"🔵 Обычных пользователей: {total_users - whitelisted - banned}\n"
             f"📈 Дневной лимит: {DAILY_LIMIT} товаров\n\n"
         )
-
         if users_at_limit:
             text += f"**⚠️ Достигли лимита ({DAILY_LIMIT}+):**\n"
             for user in users_at_limit[:5]:
                 user_id, username, count = user
                 user_ident = f"@{username}" if username else f"ID: {user_id}"
                 text += f"• {user_ident}: {count} товаров\n"
-
             if len(users_at_limit) > 5:
                 text += f"• ...и еще {len(users_at_limit) - 5} пользователей\n"
             text += "\n"
-
         if top_active:
             text += "**🏆 Самые активные (за 24ч):**\n"
             for i, user in enumerate(top_active, 1):
@@ -1030,44 +923,33 @@ async def admin_limits_stats(message: types.Message):
                 user_ident = f"@{username}" if username else f"ID: {user_id}"
                 status = "⚪" if is_user_whitelisted(user_id) else "🔵"
                 text += f"{i}. {status} {user_ident}: {count} товаров\n"
-
         await message.answer(text, parse_mode="Markdown", reply_markup=get_whitelist_keyboard())
-
     except Exception as e:
         logger.error(f"❌ Ошибка в admin_limits_stats: {e}")
         await message.answer("❌ Произошла ошибка при загрузке статистики.")
 
 @dp.message(F.text == "◀️ Назад в админку")
 async def back_to_admin(message: types.Message):
-    """Возврат из управления белым списком в админ-панель"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
+    await message.answer("Возврат в панель администратора.", reply_markup=get_admin_keyboard())
 
-    await message.answer(
-        "Возврат в панель администратора.",
-        reply_markup=get_admin_keyboard()
-    )
-
-# ================== ПРОСМОТР ВСЕХ ТОВАРОВ С ПАГИНАЦИЕЙ (ИСПРАВЛЕНО) ==================
+# ================== ПРОСМОТР ВСЕХ ТОВАРОВ (ПАГИНАЦИЯ) ==================
 @dp.message(F.text == "👁 Просмотреть все товары")
 async def admin_show_all_products(message: types.Message):
-    """Показывает все товары в базе с пагинацией (10 на страницу)"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM products")
         total_count = c.fetchone()[0]
-
         if total_count == 0:
             await message.answer("📭 В базе данных пока нет товаров.")
             conn.close()
             return
-
         c.execute("""
             SELECT 
                 p.id, 
@@ -1081,45 +963,35 @@ async def admin_show_all_products(message: types.Message):
         """)
         all_products = c.fetchall()
         conn.close()
-
         admin_pages[message.from_user.id] = {
             'products': all_products,
             'page': 0,
             'total': total_count
         }
-
         await send_products_page(message.from_user.id, message)
-
     except Exception as e:
         logger.error(f"❌ Ошибка в admin_show_all_products: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при загрузке товаров.")
 
 async def send_products_page(user_id, target_message_or_callback):
-    """Отправляет одну страницу товаров (10 шт) с кнопками навигации"""
     data = admin_pages.get(user_id)
     if not data:
         return
-
     products = data['products']
     page = data['page']
     total = data['total']
-    
     per_page = 10
     start = page * per_page
     end = start + per_page
     page_products = products[start:end]
-
     total_pages = (total + per_page - 1) // per_page
 
     text = f"📋 <b>Все товары в базе (всего: {total})</b>\n"
     text += f"📄 Страница {page + 1} из {total_pages}\n\n"
-
     for product in page_products:
         product_id, title, price, contact, seller_id, username = product
-        
         safe_title = title[:35] + "..." if len(title) > 35 else title
         seller_info = f"@{username}" if username else f"ID: {seller_id}"
-        
         text += (
             f"<b>🔢 ID: {product_id}</b>\n"
             f"📌 {safe_title}\n"
@@ -1127,7 +999,6 @@ async def send_products_page(user_id, target_message_or_callback):
             f"📞 @{contact}\n"
             f"────────────────────\n"
         )
-
     builder = InlineKeyboardBuilder()
     if page > 0:
         builder.button(text="⬅️ Назад", callback_data="admin_page_prev")
@@ -1144,69 +1015,52 @@ async def send_products_page(user_id, target_message_or_callback):
 
 @dp.callback_query(F.data.startswith("admin_page_"))
 async def admin_page_callback(callback: types.CallbackQuery):
-    """Обработка кнопок пагинации"""
     user_id = callback.from_user.id
     data = admin_pages.get(user_id)
     if not data:
         await callback.answer("❌ Сессия истекла, начните заново.")
         return
-
-    action = callback.data.split("_")[2]  # prev, next, refresh
+    action = callback.data.split("_")[2]
     if action == "prev":
         data['page'] -= 1
     elif action == "next":
         data['page'] += 1
     elif action == "refresh":
         pass
-
     await send_products_page(user_id, callback)
 
 @dp.message(Command("ids"))
 async def cmd_ids(message: types.Message):
-    """Быстрый просмотр ID всех товаров"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("SELECT id, title FROM products ORDER BY id DESC")
         products = c.fetchall()
         conn.close()
-
         if not products:
             await message.answer("📭 Товаров нет в базе.")
             return
-
         text = "🆔 <b>СПИСОК ID ТОВАРОВ:</b>\n\n"
         for pid, title in products[:50]:
             short_title = title[:25] + "..." if len(title) > 25 else title
             text += f"<b>ID: {pid}</b> - {short_title}\n"
-
         if len(products) > 50:
             text += f"\n... и ещё {len(products)-50} товаров. Используйте /admin для полного просмотра."
-
         text += f"\n\n📊 Всего товаров: {len(products)}"
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"❌ Ошибка в cmd_ids: {e}")
         await message.answer("❌ Ошибка при получении ID товаров.")
 
-# ================== КОМАНДА HEALTH БЕЗ PSUTIL ==================
 @dp.message(Command("health"))
 async def cmd_health(message: types.Message):
-    """Показать диагностику бота (без внешних библиотек)"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     try:
-        import os
-        import sqlite3
-        from datetime import datetime
-        
-        # Пытаемся получить примерное использование памяти из /proc (если доступно)
         memory_mb = 0
         try:
             with open('/proc/self/status') as f:
@@ -1216,11 +1070,9 @@ async def cmd_health(message: types.Message):
                         break
         except:
             memory_mb = 0
-            
         db_size = 0
         if os.path.exists('brainrot_shop.db'):
             db_size = os.path.getsize('brainrot_shop.db') / (1024 * 1024)
-        
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM users")
@@ -1228,7 +1080,6 @@ async def cmd_health(message: types.Message):
         c.execute("SELECT COUNT(*) FROM products")
         total_products = c.fetchone()[0]
         conn.close()
-        
         text = (
             f"🏥 <b>Диагностика бота</b>\n\n"
             f"<b>Пользователи в базе:</b> {total_users}\n"
@@ -1244,11 +1095,9 @@ async def cmd_health(message: types.Message):
 
 @dp.message(F.text == "🔍 Найти товары пользователя")
 async def admin_find_user_products(message: types.Message, state: FSMContext):
-    """Поиск товаров пользователя по ID"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await state.set_state(AdminActionForm.waiting_for_user_id)
     await message.answer(
         "🔍 **Поиск товаров пользователя**\n\n"
@@ -1265,7 +1114,6 @@ async def admin_find_user_products(message: types.Message, state: FSMContext):
 
 @dp.message(AdminActionForm.waiting_for_user_id)
 async def process_user_id_for_search(message: types.Message, state: FSMContext):
-    """Обработка введенного ID/username для поиска"""
     if message.text == "❌ Отмена поиска":
         await state.clear()
         await message.answer("❌ Поиск отменен.", reply_markup=get_admin_keyboard())
@@ -1281,10 +1129,7 @@ async def process_user_id_for_search(message: types.Message, state: FSMContext):
             user_id = int(search_term)
             c.execute("SELECT username FROM users WHERE user_id = ?", (user_id,))
             user = c.fetchone()
-            if user:
-                username = user[0]
-            else:
-                username = None
+            username = user[0] if user else None
         else:
             c.execute("SELECT user_id FROM users WHERE username = ?", (search_term,))
             user = c.fetchone()
@@ -1348,11 +1193,9 @@ async def process_user_id_for_search(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "🗑 Удалить товар (по ID)")
 async def admin_delete_product_start(message: types.Message, state: FSMContext):
-    """Начало удаления товара по ID"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await state.set_state(AdminActionForm.waiting_for_product_id)
     await message.answer(
         "🗑 <b>Удаление товара</b>\n\n"
@@ -1368,31 +1211,24 @@ async def admin_delete_product_start(message: types.Message, state: FSMContext):
 
 @dp.message(AdminActionForm.waiting_for_product_id)
 async def process_product_id_for_delete(message: types.Message, state: FSMContext):
-    """Обработка введенного ID товара для удаления"""
     if message.text == "❌ Отмена удаления":
         await state.clear()
         await message.answer("❌ Удаление отменено.", reply_markup=get_admin_keyboard())
         return
-
     if not message.text.isdigit():
         await message.answer("❌ ID товара должен быть числом. Попробуйте снова:")
         return
-
     product_id = int(message.text)
-
     try:
         product = get_product_by_id(product_id)
-
         if not product:
             await message.answer("❌ Товар с таким ID не найден.")
             return
-
         await state.update_data(
             delete_product_id=product_id,
             delete_product_title=product[2],
             delete_seller_id=product[1]
         )
-
         await state.set_state(AdminActionForm.waiting_for_delete_reason)
         await message.answer(
             f"✅ Товар найден: <b>ID: {product[0]} - {product[2]}</b>\n\n"
@@ -1403,7 +1239,6 @@ async def process_product_id_for_delete(message: types.Message, state: FSMContex
             f"• Несоответствие описания",
             parse_mode="HTML"
         )
-
     except Exception as e:
         logger.error(f"❌ Ошибка в process_product_id_for_delete: {e}")
         await message.answer("❌ Произошла ошибка при поиске товара.")
@@ -1411,20 +1246,15 @@ async def process_product_id_for_delete(message: types.Message, state: FSMContex
 
 @dp.message(AdminActionForm.waiting_for_delete_reason)
 async def process_delete_reason(message: types.Message, state: FSMContext):
-    """Обработка причины удаления и само удаление"""
     reason = message.text.strip()
-
     data = await state.get_data()
     product_id = data['delete_product_id']
     product_title = data['delete_product_title']
     seller_id = data['delete_seller_id']
-
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-
         c.execute("DELETE FROM products WHERE id = ?", (product_id,))
-
         log_admin_action(
             admin_id=message.from_user.id,
             action_type="delete_product",
@@ -1433,19 +1263,15 @@ async def process_delete_reason(message: types.Message, state: FSMContext):
             reason=reason,
             details=f"Удален товар: {product_title}"
         )
-
         conn.commit()
         conn.close()
-
         await state.clear()
-
         await message.answer(
             f"✅ Товар <b>ID: {product_id} - {product_title}</b> успешно удален.\n"
             f"📝 Причина: {reason}",
             parse_mode="HTML",
             reply_markup=get_admin_keyboard()
         )
-
         try:
             asyncio.create_task(
                 bot.send_message(
@@ -1459,7 +1285,6 @@ async def process_delete_reason(message: types.Message, state: FSMContext):
             )
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке уведомления продавцу: {e}")
-
     except Exception as e:
         logger.error(f"❌ Ошибка при удалении товара: {e}")
         await message.answer("❌ Произошла ошибка при удалении товара.")
@@ -1467,11 +1292,9 @@ async def process_delete_reason(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "✏️ Редактировать любой товар")
 async def admin_edit_product(message: types.Message, state: FSMContext):
-    """Редактирование любого товара по ID"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await message.answer(
         "✏️ <b>Редактирование любого товара</b>\n\n"
         "Для редактирования товара введите его ID.\n"
@@ -1483,18 +1306,14 @@ async def admin_edit_product(message: types.Message, state: FSMContext):
             resize_keyboard=True
         )
     )
-    
     await state.set_state(AdminActionForm.waiting_for_product_id)
     await state.update_data(action="edit_product")
 
-# ================== БАН/РАЗБАН ПОЛЬЗОВАТЕЛЯ ==================
 @dp.message(F.text == "⛔ Бан/разбан пользователя")
 async def admin_ban_user_start(message: types.Message, state: FSMContext):
-    """Начало процесса бана пользователя"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     await state.clear()
     await state.set_state(AdminActionForm.waiting_for_user_id_for_ban)
     await message.answer(
@@ -1513,31 +1332,23 @@ async def admin_ban_user_start(message: types.Message, state: FSMContext):
 
 @dp.message(AdminActionForm.waiting_for_user_id_for_ban)
 async def process_ban_user_id(message: types.Message, state: FSMContext):
-    """Обработка ввода ID пользователя для бана/разбана"""
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Операция отменена.", reply_markup=get_admin_keyboard())
         return
-
     search_term = message.text.strip()
     admin_id = message.from_user.id
-
     user = get_user_by_id_or_username(search_term)
-    
     if not user:
         await message.answer("❌ Пользователь не найден. Проверьте ID или username и попробуйте снова:")
         return
-
     user_id, username, is_banned, ban_reason = user
-    
     await state.update_data(
         ban_user_id=user_id,
         ban_username=username,
         is_banned_current=is_banned
     )
-    
     user_info = f"@{username}" if username else f"ID: {user_id}"
-    
     if is_banned:
         await state.set_state(AdminActionForm.waiting_for_ban_reason)
         await message.answer(
@@ -1569,20 +1380,16 @@ async def process_ban_user_id(message: types.Message, state: FSMContext):
 
 @dp.message(AdminActionForm.waiting_for_ban_reason)
 async def process_ban_reason(message: types.Message, state: FSMContext):
-    """Обработка причины бана или подтверждения разбана"""
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Операция отменена.", reply_markup=get_admin_keyboard())
         return
-
     data = await state.get_data()
     user_id = data.get('ban_user_id')
     username = data.get('ban_username')
     is_banned_current = data.get('is_banned_current')
     admin_id = message.from_user.id
-    
     user_info = f"@{username}" if username else f"ID: {user_id}"
-    
     if is_banned_current:
         if message.text.upper() == "ДА":
             if unban_user_in_db(user_id, admin_id):
@@ -1614,7 +1421,6 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
         if len(reason) < 3:
             await message.answer("❌ Причина бана должна содержать не менее 3 символов. Введите причину:")
             return
-        
         if ban_user_in_db(user_id, reason, admin_id):
             await state.clear()
             await message.answer(
@@ -1640,24 +1446,18 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "📊 Статистика")
 async def admin_stats(message: types.Message):
-    """Показать статистику бота"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа.")
         return
-
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-
         c.execute("SELECT COUNT(*) FROM products")
         total_products = c.fetchone()[0]
-
         c.execute("SELECT COUNT(*) FROM users")
         total_users = c.fetchone()[0]
-
         c.execute("SELECT COUNT(*) FROM users WHERE is_banned = 1")
         banned_users = c.fetchone()[0]
-
         c.execute("""
             SELECT DATE(created_at), COUNT(*) 
             FROM products 
@@ -1666,43 +1466,32 @@ async def admin_stats(message: types.Message):
             ORDER BY DATE(created_at) DESC
         """)
         last_7_days = c.fetchall()
-
         conn.close()
-
         text = (
             "📊 <b>Статистика бота</b>\n\n"
             f"<b>👥 Пользователи:</b> {total_users}\n"
             f"<b>⛔ Забанено:</b> {banned_users}\n"
             f"<b>🛍️ Товаров всего:</b> {total_products}\n\n"
         )
-
         if last_7_days:
             text += "<b>📈 Активность за 7 дней:</b>\n"
             for day_data in last_7_days:
                 day = datetime.strptime(day_data[0], "%Y-%m-%d").strftime("%d.%m")
                 text += f"• {day}: {day_data[1]} товаров\n"
-
         await message.answer(text, parse_mode="HTML", reply_markup=get_admin_keyboard())
-
     except Exception as e:
         logger.error(f"❌ Ошибка в admin_stats: {e}")
         await message.answer("❌ Произошла ошибка при загрузке статистики.")
 
 @dp.message(F.text == "🏠 Выход из админки")
 async def admin_exit(message: types.Message):
-    """Выход из админ-панели в главное меню"""
-    await message.answer(
-        "Выход из панели администратора.",
-        reply_markup=get_main_menu_keyboard()
-    )
+    await message.answer("Выход из панели администратора.", reply_markup=get_main_menu_keyboard())
 
 # ================== ПОКУПАТЕЛЬ ==================
 @dp.message(F.text == "🛍️ Покупатель")
 async def buyer_mode(message: types.Message):
-    """Режим покупателя"""
     user_product_positions[message.from_user.id] = 0
     product = await get_first_product()
-
     if product:
         text = (
             f"🛒 Товар #{product[0]}\n\n"
@@ -1720,9 +1509,7 @@ async def buyer_mode(message: types.Message):
 
 @dp.message(F.text == "⏭️ Следующий товар")
 async def next_product(message: types.Message):
-    """Следующий товар"""
     product = await get_next_product_for_user(message.from_user.id)
-
     if product:
         text = (
             f"🛒 Товар #{product[0]}\n\n"
@@ -1737,7 +1524,6 @@ async def next_product(message: types.Message):
 
 @dp.message(F.text == "✅ Купить")
 async def buy_product(message: types.Message):
-    """Покупка товара"""
     await message.answer(
         "🎉 Отличный выбор!\n\n"
         "📞 Свяжитесь с продавцом по указанному username.\n\n"
@@ -1750,7 +1536,6 @@ async def buy_product(message: types.Message):
 # ================== ПРОДАВЕЦ ==================
 @dp.message(F.text == "💰 Продавец")
 async def seller_mode(message: types.Message):
-    """Режим продавца"""
     is_banned, ban_reason = check_if_user_banned(message.from_user.id)
     if is_banned:
         await message.answer(
@@ -1762,28 +1547,21 @@ async def seller_mode(message: types.Message):
             reply_markup=get_main_menu_keyboard()
         )
         return
-
     can_add, limit_message = can_user_add_product(message.from_user.id)
-
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM products WHERE seller_id = ?", (message.from_user.id,))
     count = c.fetchone()[0]
     conn.close()
-
     response = f"💰 Режим продавца\n\n📊 Ваших товаров: {count}\n\n"
-
     if not can_add and "Лимит исчерпан" in limit_message:
         response += f"⚠️ {limit_message}\n\n"
-
     response += "Доступные действия:"
-
     await message.answer(response, reply_markup=get_seller_keyboard())
 
 # ================== ДОБАВЛЕНИЕ ТОВАРА ==================
 @dp.message(F.text == "➕ Добавить товар")
 async def add_product_start(message: types.Message, state: FSMContext):
-    """Начало добавления товара"""
     is_banned, ban_reason = check_if_user_banned(message.from_user.id)
     if is_banned:
         await message.answer(
@@ -1794,9 +1572,7 @@ async def add_product_start(message: types.Message, state: FSMContext):
             reply_markup=get_seller_keyboard()
         )
         return
-
     can_add, limit_message = can_user_add_product(message.from_user.id)
-
     if not can_add:
         await message.answer(
             limit_message,
@@ -1804,7 +1580,6 @@ async def add_product_start(message: types.Message, state: FSMContext):
             reply_markup=get_seller_keyboard()
         )
         return
-
     await state.set_state(ProductForm.title)
     await message.answer(
         f"📝 Добавление нового товара\n\n{limit_message}\n\nВведите название товара:",
@@ -1816,13 +1591,11 @@ async def add_product_start(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "❌ Отмена")
 async def cancel_operation(message: types.Message, state: FSMContext):
-    """Отмена операции"""
     await state.clear()
     await message.answer("❌ Операция отменена", reply_markup=get_seller_keyboard())
 
 @dp.message(ProductForm.title)
 async def process_title(message: types.Message, state: FSMContext):
-    """Обработка названия товара"""
     if len(message.text) > 100:
         await message.answer("❌ Слишком длинное название! Максимум 100 символов.")
         return
@@ -1832,21 +1605,18 @@ async def process_title(message: types.Message, state: FSMContext):
 
 @dp.message(ProductForm.description)
 async def process_description(message: types.Message, state: FSMContext):
-    """Обработка описания товара"""
     await state.update_data(description=message.text)
     await state.set_state(ProductForm.price)
     await message.answer("💰 Введите цену товара (например: 100 Robux):")
 
 @dp.message(ProductForm.price)
 async def process_price(message: types.Message, state: FSMContext):
-    """Обработка цены товара"""
     await state.update_data(price=message.text)
     await state.set_state(ProductForm.contact)
     await message.answer("👤 Введите ваш username для связи (без @):")
 
 @dp.message(ProductForm.contact)
 async def process_contact(message: types.Message, state: FSMContext):
-    """Обработка контактов"""
     data = await state.get_data()
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -1858,9 +1628,7 @@ async def process_contact(message: types.Message, state: FSMContext):
         )
         conn.commit()
         conn.close()
-
         can_add, limit_message = can_user_add_product(message.from_user.id)
-
         await message.answer(
             f"✅ Товар добавлен!\n\n"
             f"📌 Название: {data['title']}\n"
@@ -1878,7 +1646,6 @@ async def process_contact(message: types.Message, state: FSMContext):
 # ================== ПРОСМОТР ТОВАРОВ ==================
 @dp.message(F.text == "📋 Мои товары")
 async def show_my_products(message: types.Message):
-    """Показать товары продавца"""
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute(
@@ -1887,14 +1654,12 @@ async def show_my_products(message: types.Message):
     )
     products = c.fetchall()
     conn.close()
-
     if not products:
         await message.answer(
             "📭 У вас пока нет товаров.\n\nДобавьте первый товар кнопкой '➕ Добавить товар'",
             reply_markup=get_seller_keyboard()
         )
         return
-
     text = "📋 Ваши товары:\n\n"
     for idx, product in enumerate(products, 1):
         text += f"{idx}. #{product[0]} - {product[1]}\n   💰 {product[2]} | 👤 @{product[3]}\n\n"
@@ -1911,11 +1676,9 @@ async def manage_products(message: types.Message):
     )
     products = c.fetchall()
     conn.close()
-
     if not products:
         await message.answer("📭 У вас пока нет товаров для управления.", reply_markup=get_seller_keyboard())
         return
-
     text = "🛠 Управление товарами\n\n"
     for product in products:
         text += f"#{product[0]} - {product[1]} ({product[2]})\n"
@@ -1949,11 +1712,9 @@ async def show_updated_products_list(message: types.Message, user_id: int):
     c.execute("""SELECT id, title, price FROM products WHERE seller_id = ? ORDER BY id DESC""", (user_id,))
     products = c.fetchall()
     conn.close()
-
     if not products:
         await message.answer("📭 У вас больше нет товаров.", reply_markup=get_seller_keyboard())
         return
-
     text = "🛠 Управление товарами\n\n"
     for product in products:
         text += f"#{product[0]} - {product[1]} ({product[2]})\n"
@@ -1970,11 +1731,9 @@ async def edit_product_callback(callback: types.CallbackQuery, state: FSMContext
               (product_id, callback.from_user.id))
     product = c.fetchone()
     conn.close()
-
     if not product:
         await callback.answer("❌ Товар не найден или вы не владелец!")
         return
-
     await state.update_data(
         edit_product_id=product_id,
         edit_product_title=product[0],
@@ -1983,7 +1742,6 @@ async def edit_product_callback(callback: types.CallbackQuery, state: FSMContext
         edit_product_contact=product[3]
     )
     await state.set_state(EditProductForm.waiting_for_field)
-
     text = f"""✏️ Редактирование товара #{product_id}
 
 📌 Название: {product[0]}
@@ -2001,12 +1759,10 @@ async def process_edit_field(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Редактирование отменено", reply_markup=get_seller_keyboard())
         return
-
     field_map = {"📌 Название": "title", "📝 Описание": "description", "💰 Цена": "price", "👤 Контакты": "contact"}
     if message.text not in field_map:
         await message.answer("❌ Пожалуйста, выберите поле из списка")
         return
-
     field = field_map[message.text]
     data = await state.get_data()
     current_value = data[f"edit_product_{field}"]
@@ -2023,12 +1779,10 @@ async def process_new_value(message: types.Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Редактирование отменено", reply_markup=get_seller_keyboard())
         return
-
     data = await state.get_data()
     product_id = data['edit_product_id']
     field = data['edit_field']
     new_value = message.text
-
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -2053,21 +1807,18 @@ async def main_menu(message: types.Message):
     user_product_positions[message.from_user.id] = 0
     await cmd_start(message)
 
-# ================== ИСПРАВЛЕННЫЙ РАЗДЕЛ О БОТЕ ==================
+# ================== О БОТЕ (С КОНТАКТАМИ) ==================
 @dp.message(F.text == "ℹ️ О боте")
 async def about_bot(message: types.Message):
-    """Красивое инфо о боте с контактами админа"""
     text = (
         "🤖 <b>Steal A Brainrot Shop Bot</b>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "📌 <b>О проекте:</b>\n"
         "Этот проект полностью готов заменить все чаты по <b>Steal A Brainrot</b>.\n"
         "Удобная, быстрая и безопасная платформа для торговли.\n\n"
-        
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>Игра:</b> Brainrot (Roblox)\n"
         "📦 <b>Товары:</b> виртуальные предметы, аккаунты, услуги\n\n"
-        
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "⚙️ <b>Функции:</b>\n"
         "• 🛍️ Просмотр товаров в ленте\n"
@@ -2075,18 +1826,15 @@ async def about_bot(message: types.Message):
         "• ✏️ Редактирование объявлений\n"
         "• 🗑️ Удаление товаров\n"
         "• ⭐ Система лимитов и белый список\n\n"
-        
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "👤 <b>Контакты администратора:</b>\n"
         "Для разблокировки, вопросов и предложений:\n"
         "📨 <b>@AbelTesayfe</b>\n\n"
-        
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "🛡️ <b>Правила:</b>\n"
         "• 🚫 Запрещено мошенничество\n"
         "• 💬 Общайтесь уважительно\n"
         "• ✅ Проверяйте сделки перед покупкой\n\n"
-        
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "✨ <b>Удачи в игре и выгодных сделок!</b>"
     )
@@ -2101,14 +1849,14 @@ async def unknown_command(message: types.Message):
 
 # ================== ЗАПУСК БОТА ==================
 async def main():
-    """Основная функция запуска бота"""
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v2.7 (полностью рабочая версия без psutil)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v2.7 (полностью рабочая версия)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
-        init_database()
+        # !!! ВАЖНО: создание новой БД отключено, чтобы не потерять ваши данные !!!
+        # init_database()  # Раскомментируйте, когда будете уверены, что база существует и нужно создать таблицы
 
         bot_info = await bot.get_me()
         logger.info(f"✅ Бот подключен: @{bot_info.username}")
