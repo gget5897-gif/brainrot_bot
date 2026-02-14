@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -2707,7 +2707,7 @@ async def main():
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
-        init_database()
+        #init_database()
 
         bot_info = await bot.get_me()
         logger.info(f"✅ Бот подключен: @{bot_info.username}")
@@ -2730,5 +2730,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
