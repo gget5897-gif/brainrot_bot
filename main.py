@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
+TOKEN = ""
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -2730,6 +2730,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
