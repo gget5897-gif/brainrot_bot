@@ -40,7 +40,9 @@ dp = Dispatcher(storage=storage)
 
 # ================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==================
 user_product_positions = {}
-admin_pages = {}  # Для пагинации в админке
+admin_pages = {}          # Для пагинации в админке (товары)
+reviews_pages = {}         # Для пагинации в отзывах (не используется, но оставим)
+moderation_index = {}      # Для навигации по модерации отзывов
 
 # ================== СОСТОЯНИЯ (FSM) ==================
 class ProductForm(StatesGroup):
@@ -62,13 +64,20 @@ class AdminActionForm(StatesGroup):
     waiting_for_unwhitelist_user = State()
     waiting_for_user_id_for_ban = State()
 
+# ================== НОВЫЕ СОСТОЯНИЯ ДЛЯ ОТЗЫВОВ ==================
+class ReviewState(StatesGroup):
+    waiting_for_rating = State()
+    waiting_for_comment = State()
+    waiting_for_evidence = State()   # для запроса доказательств админом
+
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
-    """Инициализация базы данных"""
+    """Инициализация базы данных (с таблицей отзывов)"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
 
+        # Таблица товаров
         c.execute('''CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             seller_id INTEGER NOT NULL,
@@ -79,6 +88,7 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
+        # Таблица пользователей
         c.execute(f'''CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -91,6 +101,7 @@ def init_database():
             registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
+        # Таблица действий админов
         c.execute('''CREATE TABLE IF NOT EXISTS admin_actions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             admin_id INTEGER NOT NULL,
@@ -102,45 +113,31 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
+        # ========== НОВАЯ ТАБЛИЦА ОТЗЫВОВ ==========
+        c.execute('''CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            seller_id INTEGER NOT NULL,
+            buyer_id INTEGER NOT NULL,
+            product_id INTEGER,
+            rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+            comment TEXT,
+            is_moderated BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (seller_id) REFERENCES users(user_id),
+            FOREIGN KEY (buyer_id) REFERENCES users(user_id),
+            FOREIGN KEY (product_id) REFERENCES products(id)
+        )''')
+
         conn.commit()
         conn.close()
-        logger.info("✅ База данных инициализирована")
+        logger.info("✅ База данных инициализирована (включая таблицу отзывов)")
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
         return False
 
-def get_or_create_user(user_id, username="", first_name="", last_name=""):
-    """Получаем или создаем запись о пользователе"""
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
 
-        c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        user = c.fetchone()
-
-        if not user:
-            c.execute(
-                """INSERT INTO users (user_id, username, first_name, last_name, daily_limit) 
-                   VALUES (?, ?, ?, ?, ?)""",
-                (user_id, username, first_name, last_name, DAILY_LIMIT)
-            )
-            logger.info(f"👤 Создан новый пользователь: {username} (ID: {user_id})")
-        else:
-            c.execute(
-                """UPDATE users SET username = ?, first_name = ?, last_name = ? 
-                   WHERE user_id = ?""",
-                (username, first_name, last_name, user_id)
-            )
-
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_or_create_user: {e}")
-        return False
-
-# ================== ФУНКЦИИ ДЛЯ РАБОТЫ С ТОВАРАМИ ==================
+# ================== ФУНКЦИИ ДЛЯ РАБОТЫ С ТОВАРАМИ (ТВОИ СТАРЫЕ) ==================
 async def get_next_product_for_user(user_id):
     """Получение следующего товара для пользователя"""
     try:
@@ -170,6 +167,7 @@ async def get_next_product_for_user(user_id):
         logger.error(f"❌ Ошибка при получении товара: {e}")
         return None
 
+
 async def get_first_product():
     """Получение первого товара"""
     try:
@@ -182,6 +180,7 @@ async def get_first_product():
     except Exception as e:
         logger.error(f"❌ Ошибка при получении первого товара: {e}")
         return None
+
 
 def can_user_add_product(user_id):
     """
@@ -238,6 +237,7 @@ def can_user_add_product(user_id):
         logger.error(f"❌ Ошибка в can_user_add_product: {e}")
         return False, "❌ Произошла ошибка при проверке лимита."
 
+
 def add_to_whitelist(user_id, admin_id):
     """Добавляет пользователя в белый список"""
     try:
@@ -262,6 +262,7 @@ def add_to_whitelist(user_id, admin_id):
     except Exception as e:
         logger.error(f"❌ Ошибка при добавлении в белый список: {e}")
         return False, f"❌ Ошибка: {e}"
+
 
 def remove_from_whitelist(user_id, admin_id):
     """Удаляет пользователя из белого списка"""
@@ -288,6 +289,7 @@ def remove_from_whitelist(user_id, admin_id):
         logger.error(f"❌ Ошибка при удалении из белого списка: {e}")
         return False, f"❌ Ошибка: {e}"
 
+
 def is_user_whitelisted(user_id):
     """Проверяет, находится ли пользователь в белом списке"""
     try:
@@ -305,6 +307,7 @@ def is_user_whitelisted(user_id):
         logger.error(f"❌ Ошибка при проверке белого списка: {e}")
         return False
 
+
 def get_whitelist():
     """Возвращает список пользователей в белом списке"""
     try:
@@ -320,6 +323,7 @@ def get_whitelist():
     except Exception as e:
         logger.error(f"❌ Ошибка при получении белого списка: {e}")
         return []
+
 
 def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
     """Логирование действий админа"""
@@ -339,6 +343,7 @@ def log_admin_action(admin_id, action_type, target_id=None, target_type=None, re
         logger.error(f"❌ Ошибка логирования действия админа: {e}")
         return False
 
+
 def check_if_user_banned(user_id):
     """Проверка, забанен ли пользователь"""
     try:
@@ -354,6 +359,7 @@ def check_if_user_banned(user_id):
     except Exception as e:
         logger.error(f"❌ Ошибка при проверке бана: {e}")
         return False, None
+
 
 def get_all_products():
     """Получает все товары для админки"""
@@ -378,6 +384,7 @@ def get_all_products():
         logger.error(f"❌ Ошибка в get_all_products: {e}")
         return []
 
+
 def get_product_by_id(product_id):
     """Получает товар по ID"""
     try:
@@ -390,6 +397,7 @@ def get_product_by_id(product_id):
     except Exception as e:
         logger.error(f"❌ Ошибка в get_product_by_id: {e}")
         return None
+
 
 def get_all_products_count():
     """Получает количество товаров"""
@@ -404,17 +412,19 @@ def get_all_products_count():
         logger.error(f"❌ Ошибка в get_all_products_count: {e}")
         return 0
 
+
 def get_user_by_id_or_username(search_term):
     """Находит пользователя по ID или username"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        
+
         if search_term.isdigit():
-            c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE user_id = ?", (int(search_term),))
+            c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE user_id = ?",
+                      (int(search_term),))
         else:
             c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE username = ?", (search_term,))
-        
+
         user = c.fetchone()
         conn.close()
         return user
@@ -422,13 +432,14 @@ def get_user_by_id_or_username(search_term):
         logger.error(f"❌ Ошибка в get_user_by_id_or_username: {e}")
         return None
 
+
 def ban_user_in_db(user_id, reason, admin_id):
     """Блокирует пользователя в базе данных"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("UPDATE users SET is_banned = 1, ban_reason = ? WHERE user_id = ?", (reason, user_id))
-        
+
         log_admin_action(
             admin_id=admin_id,
             action_type="ban_user",
@@ -437,7 +448,7 @@ def ban_user_in_db(user_id, reason, admin_id):
             reason=reason,
             details=f"Забанен пользователь"
         )
-        
+
         conn.commit()
         conn.close()
         return True
@@ -445,13 +456,14 @@ def ban_user_in_db(user_id, reason, admin_id):
         logger.error(f"❌ Ошибка при бане пользователя: {e}")
         return False
 
+
 def unban_user_in_db(user_id, admin_id):
     """Разблокирует пользователя в базе данных"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("UPDATE users SET is_banned = 0, ban_reason = NULL WHERE user_id = ?", (user_id,))
-        
+
         log_admin_action(
             admin_id=admin_id,
             action_type="unban_user",
@@ -460,13 +472,144 @@ def unban_user_in_db(user_id, admin_id):
             reason="Разбан",
             details=f"Разбанен пользователь"
         )
-        
+
         conn.commit()
         conn.close()
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка при разбане пользователя: {e}")
         return False
+
+
+# ================== НОВЫЕ ФУНКЦИИ ДЛЯ ОТЗЫВОВ ==================
+
+def get_seller_rating(seller_id):
+    """Возвращает средний рейтинг и количество отзывов продавца (только опубликованные)"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""
+            SELECT AVG(rating), COUNT(*) FROM reviews 
+            WHERE seller_id = ? AND is_moderated = 1
+        """, (seller_id,))
+        avg, count = c.fetchone()
+        conn.close()
+        if avg:
+            return round(avg, 1), count
+        return None, 0
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_seller_rating: {e}")
+        return None, 0
+
+def get_seller_reviews(seller_id, page=0, per_page=5):
+    """Возвращает страницу с опубликованными отзывами"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        offset = page * per_page
+        c.execute("""
+            SELECT r.rating, r.comment, r.created_at, u.username 
+            FROM reviews r
+            LEFT JOIN users u ON r.buyer_id = u.user_id
+            WHERE r.seller_id = ? AND r.is_moderated = 1
+            ORDER BY r.created_at DESC
+            LIMIT ? OFFSET ?
+        """, (seller_id, per_page, offset))
+        reviews = c.fetchall()
+        # также общее количество
+        c.execute("SELECT COUNT(*) FROM reviews WHERE seller_id = ? AND is_moderated = 1", (seller_id,))
+        total = c.fetchone()[0]
+        conn.close()
+        return reviews, total
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_seller_reviews: {e}")
+        return [], 0
+
+def add_review(seller_id, buyer_id, product_id, rating, comment):
+    """Добавляет новый отзыв (статус на модерации)"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO reviews (seller_id, buyer_id, product_id, rating, comment, is_moderated)
+            VALUES (?, ?, ?, ?, ?, 0)
+        """, (seller_id, buyer_id, product_id, rating, comment))
+        review_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return review_id
+    except Exception as e:
+        logger.error(f"❌ Ошибка в add_review: {e}")
+        return None
+
+def get_review_by_id(review_id):
+    """Возвращает данные отзыва (для модерации)"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""
+            SELECT r.id, r.rating, r.comment, r.created_at, 
+                   u_buyer.user_id, u_buyer.username, 
+                   u_seller.user_id, u_seller.username
+            FROM reviews r
+            LEFT JOIN users u_buyer ON r.buyer_id = u_buyer.user_id
+            LEFT JOIN users u_seller ON r.seller_id = u_seller.user_id
+            WHERE r.id = ?
+        """, (review_id,))
+        rev = c.fetchone()
+        conn.close()
+        return rev
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_review_by_id: {e}")
+        return None
+
+def approve_review(review_id, admin_id):
+    """Одобрить отзыв"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("UPDATE reviews SET is_moderated = 1 WHERE id = ?", (review_id,))
+        # получим данные для уведомления продавца
+        c.execute("SELECT seller_id, rating, comment FROM reviews WHERE id = ?", (review_id,))
+        seller_id, rating, comment = c.fetchone()
+        conn.commit()
+        conn.close()
+        return seller_id, rating, comment
+    except Exception as e:
+        logger.error(f"❌ Ошибка в approve_review: {e}")
+        return None
+
+def reject_review(review_id, admin_id):
+    """Отклонить отзыв (удалить)"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        # получим buyer_id для уведомления
+        c.execute("SELECT buyer_id FROM reviews WHERE id = ?", (review_id,))
+        buyer_id = c.fetchone()
+        if buyer_id:
+            buyer_id = buyer_id[0]
+        c.execute("DELETE FROM reviews WHERE id = ?", (review_id,))
+        conn.commit()
+        conn.close()
+        return buyer_id
+    except Exception as e:
+        logger.error(f"❌ Ошибка в reject_review: {e}")
+        return None
+
+def get_unmoderated_reviews():
+    """Возвращает список ID всех отзывов на модерации (для навигации)"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT id FROM reviews WHERE is_moderated = 0 ORDER BY created_at ASC")
+        ids = [row[0] for row in c.fetchall()]
+        conn.close()
+        return ids
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_unmoderated_reviews: {e}")
+        return []
+
 
 # ================== КЛАВИАТУРЫ ==================
 def get_main_menu_keyboard():
@@ -521,7 +664,7 @@ def get_edit_options_keyboard():
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_admin_keyboard():
-    """Клавиатура для админ-панели"""
+    """Обновлённая клавиатура админа с кнопкой модерации отзывов"""
     keyboard = [
         [KeyboardButton(text="👁 Просмотреть все товары")],
         [KeyboardButton(text="🔍 Найти товары пользователя")],
@@ -529,6 +672,7 @@ def get_admin_keyboard():
         [KeyboardButton(text="✏️ Редактировать любой товар")],
         [KeyboardButton(text="⛔ Бан/разбан пользователя")],
         [KeyboardButton(text="⚪ Управление белым списком")],
+        [KeyboardButton(text="📝 Модерация отзывов")],          # НОВАЯ КНОПКА
         [KeyboardButton(text="📊 Статистика")],
         [KeyboardButton(text="🏠 Выход из админки")]
     ]
@@ -544,6 +688,7 @@ def get_whitelist_keyboard():
         [KeyboardButton(text="◀️ Назад в админку")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
 
 # ================== ОСНОВНЫЕ КОМАНДЫ БОТА ==================
 @dp.message(Command("start"))
@@ -562,6 +707,7 @@ async def cmd_start(message: types.Message):
         reply_markup=get_main_menu_keyboard()
     )
 
+
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
     """Обработчик команды /help"""
@@ -575,6 +721,7 @@ async def cmd_help(message: types.Message):
         "/health - диагностика (админ)\n\n"
         "Используйте кнопки меню для навигации."
     )
+
 
 @dp.message(Command("mylimit"))
 async def cmd_mylimit(message: types.Message):
@@ -642,6 +789,7 @@ async def cmd_mylimit(message: types.Message):
         logger.error(f"❌ Ошибка в cmd_mylimit: {e}")
         await message.answer("❌ Произошла ошибка при получении информации.")
 
+
 @dp.message(Command("status"))
 async def cmd_status(message: types.Message):
     """Обработчик команды /status"""
@@ -664,6 +812,7 @@ async def cmd_status(message: types.Message):
         f"👥 Пользователей в памяти: {len(user_product_positions)}"
     )
 
+
 # ================== АДМИН КОМАНДЫ ==================
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message):
@@ -680,7 +829,8 @@ async def cmd_admin(message: types.Message):
         parse_mode="Markdown"
     )
 
-# ================== ФУНКЦИИ БЕЛОГО СПИСКА ==================
+
+# ================== ФУНКЦИИ БЕЛОГО СПИСКА (ТВОИ СТАРЫЕ) ==================
 @dp.message(F.text == "⚪ Управление белым списком")
 async def admin_whitelist_menu(message: types.Message):
     """Меню управления белым списком"""
@@ -697,6 +847,7 @@ async def admin_whitelist_menu(message: types.Message):
         parse_mode="Markdown",
         reply_markup=get_whitelist_keyboard()
     )
+
 
 @dp.message(F.text == "➕ Добавить в белый список")
 async def admin_add_to_whitelist_start(message: types.Message, state: FSMContext):
@@ -718,6 +869,7 @@ async def admin_add_to_whitelist_start(message: types.Message, state: FSMContext
             resize_keyboard=True
         )
     )
+
 
 @dp.message(AdminActionForm.waiting_for_whitelist_user)
 async def process_add_to_whitelist(message: types.Message, state: FSMContext):
@@ -814,6 +966,7 @@ async def process_add_to_whitelist(message: types.Message, state: FSMContext):
         await message.answer("❌ Произошла ошибка при добавлении в белый список.")
         await state.clear()
 
+
 @dp.message(F.text == "➖ Удалить из белого списка")
 async def admin_remove_from_whitelist_start(message: types.Message, state: FSMContext):
     """Начало удаления пользователя из белого списка"""
@@ -834,6 +987,7 @@ async def admin_remove_from_whitelist_start(message: types.Message, state: FSMCo
             resize_keyboard=True
         )
     )
+
 
 @dp.message(AdminActionForm.waiting_for_unwhitelist_user)
 async def process_remove_from_whitelist(message: types.Message, state: FSMContext):
@@ -920,6 +1074,7 @@ async def process_remove_from_whitelist(message: types.Message, state: FSMContex
         await message.answer("❌ Произошла ошибка при удалении из белого списка.")
         await state.clear()
 
+
 @dp.message(F.text == "👁 Показать белый список")
 async def admin_show_whitelist(message: types.Message):
     """Показывает список пользователей в белом списке"""
@@ -954,6 +1109,7 @@ async def admin_show_whitelist(message: types.Message):
     text += f"\nВсего: **{len(users)}** пользователей"
 
     await message.answer(text, parse_mode="Markdown", reply_markup=get_whitelist_keyboard())
+
 
 @dp.message(F.text == "📊 Статистика лимитов")
 async def admin_limits_stats(message: types.Message):
@@ -1037,6 +1193,7 @@ async def admin_limits_stats(message: types.Message):
         logger.error(f"❌ Ошибка в admin_limits_stats: {e}")
         await message.answer("❌ Произошла ошибка при загрузке статистики.")
 
+
 @dp.message(F.text == "◀️ Назад в админку")
 async def back_to_admin(message: types.Message):
     """Возврат из управления белым списком в админ-панель"""
@@ -1049,7 +1206,8 @@ async def back_to_admin(message: types.Message):
         reply_markup=get_admin_keyboard()
     )
 
-# ================== ПРОСМОТР ВСЕХ ТОВАРОВ С ПАГИНАЦИЕЙ (ИСПРАВЛЕНО) ==================
+
+# ================== ПРОСМОТР ВСЕХ ТОВАРОВ С ПАГИНАЦИЕЙ (ИЗ ТВОЕГО КОДА) ==================
 @dp.message(F.text == "👁 Просмотреть все товары")
 async def admin_show_all_products(message: types.Message):
     """Показывает все товары в базе с пагинацией (10 на страницу)"""
@@ -1094,6 +1252,7 @@ async def admin_show_all_products(message: types.Message):
         logger.error(f"❌ Ошибка в admin_show_all_products: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при загрузке товаров.")
 
+
 async def send_products_page(user_id, target_message_or_callback):
     """Отправляет одну страницу товаров (10 шт) с кнопками навигации"""
     data = admin_pages.get(user_id)
@@ -1103,7 +1262,7 @@ async def send_products_page(user_id, target_message_or_callback):
     products = data['products']
     page = data['page']
     total = data['total']
-    
+
     per_page = 10
     start = page * per_page
     end = start + per_page
@@ -1116,10 +1275,10 @@ async def send_products_page(user_id, target_message_or_callback):
 
     for product in page_products:
         product_id, title, price, contact, seller_id, username = product
-        
+
         safe_title = title[:35] + "..." if len(title) > 35 else title
         seller_info = f"@{username}" if username else f"ID: {seller_id}"
-        
+
         text += (
             f"<b>🔢 ID: {product_id}</b>\n"
             f"📌 {safe_title}\n"
@@ -1142,6 +1301,7 @@ async def send_products_page(user_id, target_message_or_callback):
     else:
         await target_message_or_callback.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
 
+
 @dp.callback_query(F.data.startswith("admin_page_"))
 async def admin_page_callback(callback: types.CallbackQuery):
     """Обработка кнопок пагинации"""
@@ -1160,6 +1320,7 @@ async def admin_page_callback(callback: types.CallbackQuery):
         pass
 
     await send_products_page(user_id, callback)
+
 
 @dp.message(Command("ids"))
 async def cmd_ids(message: types.Message):
@@ -1185,13 +1346,14 @@ async def cmd_ids(message: types.Message):
             text += f"<b>ID: {pid}</b> - {short_title}\n"
 
         if len(products) > 50:
-            text += f"\n... и ещё {len(products)-50} товаров. Используйте /admin для полного просмотра."
+            text += f"\n... и ещё {len(products) - 50} товаров. Используйте /admin для полного просмотра."
 
         text += f"\n\n📊 Всего товаров: {len(products)}"
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"❌ Ошибка в cmd_ids: {e}")
         await message.answer("❌ Ошибка при получении ID товаров.")
+
 
 # ================== КОМАНДА HEALTH БЕЗ PSUTIL ==================
 @dp.message(Command("health"))
@@ -1205,7 +1367,7 @@ async def cmd_health(message: types.Message):
         import os
         import sqlite3
         from datetime import datetime
-        
+
         # Пытаемся получить примерное использование памяти из /proc (если доступно)
         memory_mb = 0
         try:
@@ -1216,11 +1378,11 @@ async def cmd_health(message: types.Message):
                         break
         except:
             memory_mb = 0
-            
+
         db_size = 0
         if os.path.exists('brainrot_shop.db'):
             db_size = os.path.getsize('brainrot_shop.db') / (1024 * 1024)
-        
+
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM users")
@@ -1228,7 +1390,7 @@ async def cmd_health(message: types.Message):
         c.execute("SELECT COUNT(*) FROM products")
         total_products = c.fetchone()[0]
         conn.close()
-        
+
         text = (
             f"🏥 <b>Диагностика бота</b>\n\n"
             f"<b>Пользователи в базе:</b> {total_users}\n"
@@ -1241,6 +1403,7 @@ async def cmd_health(message: types.Message):
     except Exception as e:
         logger.error(f"❌ Ошибка в health: {e}")
         await message.answer("❌ Не удалось получить информацию.")
+
 
 @dp.message(F.text == "🔍 Найти товары пользователя")
 async def admin_find_user_products(message: types.Message, state: FSMContext):
@@ -1262,6 +1425,7 @@ async def admin_find_user_products(message: types.Message, state: FSMContext):
             resize_keyboard=True
         )
     )
+
 
 @dp.message(AdminActionForm.waiting_for_user_id)
 async def process_user_id_for_search(message: types.Message, state: FSMContext):
@@ -1336,7 +1500,7 @@ async def process_user_id_for_search(message: types.Message, state: FSMContext):
             )
 
         if len(products) > 10:
-            text += f"\n... и ещё {len(products)-10} товаров.\n"
+            text += f"\n... и ещё {len(products) - 10} товаров.\n"
         text += f"\n<b>Всего товаров:</b> {len(products)}"
 
         await message.answer(text, parse_mode="HTML", reply_markup=get_admin_keyboard())
@@ -1345,6 +1509,7 @@ async def process_user_id_for_search(message: types.Message, state: FSMContext):
         logger.error(f"❌ Ошибка в process_user_id_for_search: {e}")
         await message.answer("❌ Произошла ошибка при поиске.")
         await state.clear()
+
 
 @dp.message(F.text == "🗑 Удалить товар (по ID)")
 async def admin_delete_product_start(message: types.Message, state: FSMContext):
@@ -1365,6 +1530,7 @@ async def admin_delete_product_start(message: types.Message, state: FSMContext):
             resize_keyboard=True
         )
     )
+
 
 @dp.message(AdminActionForm.waiting_for_product_id)
 async def process_product_id_for_delete(message: types.Message, state: FSMContext):
@@ -1408,6 +1574,7 @@ async def process_product_id_for_delete(message: types.Message, state: FSMContex
         logger.error(f"❌ Ошибка в process_product_id_for_delete: {e}")
         await message.answer("❌ Произошла ошибка при поиске товара.")
         await state.clear()
+
 
 @dp.message(AdminActionForm.waiting_for_delete_reason)
 async def process_delete_reason(message: types.Message, state: FSMContext):
@@ -1465,6 +1632,7 @@ async def process_delete_reason(message: types.Message, state: FSMContext):
         await message.answer("❌ Произошла ошибка при удалении товара.")
         await state.clear()
 
+
 @dp.message(F.text == "✏️ Редактировать любой товар")
 async def admin_edit_product(message: types.Message, state: FSMContext):
     """Редактирование любого товара по ID"""
@@ -1483,9 +1651,10 @@ async def admin_edit_product(message: types.Message, state: FSMContext):
             resize_keyboard=True
         )
     )
-    
+
     await state.set_state(AdminActionForm.waiting_for_product_id)
     await state.update_data(action="edit_product")
+
 
 # ================== БАН/РАЗБАН ПОЛЬЗОВАТЕЛЯ ==================
 @dp.message(F.text == "⛔ Бан/разбан пользователя")
@@ -1511,6 +1680,7 @@ async def admin_ban_user_start(message: types.Message, state: FSMContext):
         )
     )
 
+
 @dp.message(AdminActionForm.waiting_for_user_id_for_ban)
 async def process_ban_user_id(message: types.Message, state: FSMContext):
     """Обработка ввода ID пользователя для бана/разбана"""
@@ -1523,21 +1693,21 @@ async def process_ban_user_id(message: types.Message, state: FSMContext):
     admin_id = message.from_user.id
 
     user = get_user_by_id_or_username(search_term)
-    
+
     if not user:
         await message.answer("❌ Пользователь не найден. Проверьте ID или username и попробуйте снова:")
         return
 
     user_id, username, is_banned, ban_reason = user
-    
+
     await state.update_data(
         ban_user_id=user_id,
         ban_username=username,
         is_banned_current=is_banned
     )
-    
+
     user_info = f"@{username}" if username else f"ID: {user_id}"
-    
+
     if is_banned:
         await state.set_state(AdminActionForm.waiting_for_ban_reason)
         await message.answer(
@@ -1567,6 +1737,7 @@ async def process_ban_user_id(message: types.Message, state: FSMContext):
             )
         )
 
+
 @dp.message(AdminActionForm.waiting_for_ban_reason)
 async def process_ban_reason(message: types.Message, state: FSMContext):
     """Обработка причины бана или подтверждения разбана"""
@@ -1580,9 +1751,9 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
     username = data.get('ban_username')
     is_banned_current = data.get('is_banned_current')
     admin_id = message.from_user.id
-    
+
     user_info = f"@{username}" if username else f"ID: {user_id}"
-    
+
     if is_banned_current:
         if message.text.upper() == "ДА":
             if unban_user_in_db(user_id, admin_id):
@@ -1614,7 +1785,7 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
         if len(reason) < 3:
             await message.answer("❌ Причина бана должна содержать не менее 3 символов. Введите причину:")
             return
-        
+
         if ban_user_in_db(user_id, reason, admin_id):
             await state.clear()
             await message.answer(
@@ -1637,6 +1808,7 @@ async def process_ban_reason(message: types.Message, state: FSMContext):
                 pass
         else:
             await message.answer("❌ Произошла ошибка при бане пользователя.")
+
 
 @dp.message(F.text == "📊 Статистика")
 async def admin_stats(message: types.Message):
@@ -1688,6 +1860,7 @@ async def admin_stats(message: types.Message):
         logger.error(f"❌ Ошибка в admin_stats: {e}")
         await message.answer("❌ Произошла ошибка при загрузке статистики.")
 
+
 @dp.message(F.text == "🏠 Выход из админки")
 async def admin_exit(message: types.Message):
     """Выход из админ-панели в главное меню"""
@@ -1696,7 +1869,8 @@ async def admin_exit(message: types.Message):
         reply_markup=get_main_menu_keyboard()
     )
 
-# ================== ПОКУПАТЕЛЬ ==================
+
+# ================== ПОКУПАТЕЛЬ (ОБНОВЛЁННЫЙ С КНОПКОЙ ОТЗЫВОВ) ==================
 @dp.message(F.text == "🛍️ Покупатель")
 async def buyer_mode(message: types.Message):
     """Режим покупателя"""
@@ -1704,19 +1878,13 @@ async def buyer_mode(message: types.Message):
     product = await get_first_product()
 
     if product:
-        text = (
-            f"🛒 Товар #{product[0]}\n\n"
-            f"📌 Название: {product[2]}\n"
-            f"📝 Описание: {product[3]}\n"
-            f"💰 Цена: {product[4]}\n"
-            f"👤 Контакты: @{product[5]}"
-        )
-        await message.answer(text, reply_markup=get_buyer_keyboard())
+        await show_product_with_review_button(message, product)
     else:
         await message.answer(
             "😔 Товаров пока нет\n\nПопросите друзей добавить товары!",
             reply_markup=get_main_menu_keyboard()
         )
+
 
 @dp.message(F.text == "⏭️ Следующий товар")
 async def next_product(message: types.Message):
@@ -1724,21 +1892,33 @@ async def next_product(message: types.Message):
     product = await get_next_product_for_user(message.from_user.id)
 
     if product:
-        text = (
-            f"🛒 Товар #{product[0]}\n\n"
-            f"📌 Название: {product[2]}\n"
-            f"📝 Описание: {product[3]}\n"
-            f"💰 Цена: {product[4]}\n"
-            f"👤 Контакты: @{product[5]}"
-        )
-        await message.answer(text)
+        await show_product_with_review_button(message, product)
     else:
         await message.answer("😔 Товаров больше нет")
 
-@dp.message(F.text == "✅ Купить")
-async def buy_product(message: types.Message):
-    """Покупка товара"""
-    await message.answer(
+
+async def show_product_with_review_button(message: types.Message, product):
+    """Показывает товар с инлайн-кнопками"""
+    product_id, seller_id, title, description, price, contact, _ = product
+    text = (
+        f"🛒 Товар #{product_id}\n\n"
+        f"📌 Название: {title}\n"
+        f"📝 Описание: {description}\n"
+        f"💰 Цена: {price}\n"
+        f"👤 Контакты: @{contact}"
+    )
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Купить", callback_data=f"buy_{product_id}")
+    builder.button(text="⭐ Отзывы о продавце", callback_data=f"reviews_{seller_id}_{product_id}")
+    builder.button(text="🏠 Главное меню", callback_data="back_to_main")
+    builder.adjust(2)
+    await message.answer(text, reply_markup=builder.as_markup())
+
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy_callback(callback: types.CallbackQuery):
+    """Обработка кнопки Купить"""
+    await callback.message.answer(
         "🎉 Отличный выбор!\n\n"
         "📞 Свяжитесь с продавцом по указанному username.\n\n"
         "⚠️ Будьте осторожны:\n"
@@ -1746,8 +1926,408 @@ async def buy_product(message: types.Message):
         "• Договоритесь о безопасной сделке\n\n"
         "Удачи в игре! 🎮"
     )
+    await callback.answer()
 
-# ================== ПРОДАВЕЦ ==================
+
+@dp.callback_query(F.data == "back_to_main")
+async def back_to_main_callback(callback: types.CallbackQuery):
+    """Возврат в главное меню"""
+    await callback.message.delete()
+    await cmd_start(callback.message)
+
+
+# ================== НОВЫЕ ОБРАБОТЧИКИ ДЛЯ ОТЗЫВОВ ==================
+
+@dp.callback_query(F.data.startswith("reviews_"))
+async def show_seller_reviews(callback: types.CallbackQuery):
+    """Показывает список отзывов о продавце"""
+    _, seller_id, product_id = callback.data.split("_")
+    seller_id = int(seller_id)
+
+    # Получаем рейтинг и отзывы
+    avg_rating, total = get_seller_rating(seller_id)
+
+    # Получаем username продавца
+    conn = sqlite3.connect('brainrot_shop.db')
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE user_id = ?", (seller_id,))
+    res = c.fetchone()
+    seller_username = res[0] if res else str(seller_id)
+    conn.close()
+
+    # Сохраняем seller_id для возврата (можно в глобальной переменной, но проще передавать в callback)
+    await callback.message.edit_text(
+        f"👤 Продавец: @{seller_username}\n"
+        f"⭐ Рейтинг: {avg_rating if avg_rating else 'нет'} (на основе {total} отзывов)\n\n"
+        f"📝 Загружаю отзывы...",
+        reply_markup=InlineKeyboardBuilder().button(text="🔄 Загрузить", callback_data=f"rev_load_{seller_id}_0").as_markup()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("rev_load_"))
+async def load_reviews_page(callback: types.CallbackQuery):
+    """Загружает страницу отзывов"""
+    _, seller_id, page_str = callback.data.split("_")
+    seller_id = int(seller_id)
+    page = int(page_str)
+
+    reviews, total = get_seller_reviews(seller_id, page)
+    total_pages = (total + 4) // 5 if total else 1
+
+    # Информация о продавце
+    conn = sqlite3.connect('brainrot_shop.db')
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE user_id = ?", (seller_id,))
+    res = c.fetchone()
+    seller_username = res[0] if res else str(seller_id)
+    conn.close()
+
+    avg, total_rating = get_seller_rating(seller_id)
+    rating_text = f"{avg}/5" if avg else "нет"
+
+    text = f"👤 Продавец: @{seller_username}\n⭐ Рейтинг: {rating_text} (на основе {total_rating} отзывов)\n\n"
+    text += "📝 **Отзывы:**\n\n"
+    if not reviews:
+        text += "Пока нет отзывов.\n"
+    else:
+        for r in reviews:
+            rating, comment, created_at, username = r
+            date = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y")
+            stars = "⭐" * rating
+            text += f"{stars} {rating}/5 — {comment if comment else 'без комментария'}\n"
+            text += f"👤 @{username or 'Аноним'} | 📅 {date}\n\n"
+
+    text += f"\nСтраница {page+1} из {total_pages}"
+
+    builder = InlineKeyboardBuilder()
+    if page > 0:
+        builder.button(text="⬅️ Назад", callback_data=f"rev_load_{seller_id}_{page-1}")
+    if page < total_pages - 1:
+        builder.button(text="➡️ Вперёд", callback_data=f"rev_load_{seller_id}_{page+1}")
+    builder.button(text="✍️ Оставить отзыв", callback_data=f"leave_review_{seller_id}")
+    builder.button(text="🔙 Назад к товару", callback_data="back_to_product")
+    builder.adjust(2)
+
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("leave_review_"))
+async def leave_review_start(callback: types.CallbackQuery, state: FSMContext):
+    """Начало процесса оставления отзыва"""
+    seller_id = int(callback.data.split("_")[2])
+    await state.update_data(seller_id=seller_id)
+    await state.set_state(ReviewState.waiting_for_rating)
+    await callback.message.edit_text(
+        "⭐ Оцените продавца от 1 до 5 (напишите число):\n\n"
+        "1 — ужасно\n2 — плохо\n3 — нормально\n4 — хорошо\n5 — отлично",
+        reply_markup=InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="cancel_review").as_markup()
+    )
+    await callback.answer()
+
+
+@dp.message(ReviewState.waiting_for_rating)
+async def process_review_rating(message: types.Message, state: FSMContext):
+    """Обработка оценки"""
+    if not message.text.isdigit() or int(message.text) not in range(1, 6):
+        await message.answer("❌ Пожалуйста, введите число от 1 до 5.")
+        return
+    rating = int(message.text)
+    await state.update_data(rating=rating)
+    await state.set_state(ReviewState.waiting_for_comment)
+    await message.answer(
+        f"⭐ Вы поставили оценку: {'⭐' * rating}\n\n"
+        "📝 Напишите текстовый отзыв (или отправьте 'пропустить'):",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="⏩ Пропустить"), KeyboardButton(text="❌ Отмена")]],
+            resize_keyboard=True
+        )
+    )
+
+
+@dp.message(ReviewState.waiting_for_comment)
+async def process_review_comment(message: types.Message, state: FSMContext):
+    """Обработка комментария и сохранение отзыва"""
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("❌ Отзыв отменён.", reply_markup=get_main_menu_keyboard())
+        return
+
+    comment = None if message.text == "⏩ Пропустить" else message.text
+    data = await state.get_data()
+    seller_id = data['seller_id']
+    rating = data['rating']
+    buyer_id = message.from_user.id
+
+    review_id = add_review(seller_id, buyer_id, None, rating, comment)
+    if review_id:
+        await message.answer(
+            "✅ Ваш отзыв отправлен на модерацию. После проверки он появится в профиле продавца.",
+            reply_markup=get_main_menu_keyboard()
+        )
+        # Уведомление админам
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"🆕 Новый отзыв на модерации!\n"
+                    f"От: @{message.from_user.username or message.from_user.first_name}\n"
+                    f"Оценка: {rating}⭐\n"
+                    f"Комментарий: {comment if comment else 'нет'}\n"
+                    f"ID отзыва: {review_id}"
+                )
+            except:
+                pass
+    else:
+        await message.answer("❌ Ошибка при сохранении отзыва. Попробуйте позже.", reply_markup=get_main_menu_keyboard())
+
+    await state.clear()
+
+
+@dp.callback_query(F.data == "cancel_review")
+async def cancel_review(callback: types.CallbackQuery, state: FSMContext):
+    """Отмена оставления отзыва"""
+    await state.clear()
+    await callback.message.edit_text("❌ Отзыв отменён.")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "back_to_product")
+async def back_to_product(callback: types.CallbackQuery):
+    """Возврат к текущему товару"""
+    user_id = callback.from_user.id
+    product = await get_next_product_for_user(user_id)
+    if product:
+        await show_product_with_review_button(callback.message, product)
+    else:
+        await callback.message.answer("😔 Товаров нет", reply_markup=get_main_menu_keyboard())
+    await callback.answer()
+
+
+# ================== МОДЕРАЦИЯ ОТЗЫВОВ (АДМИНКА) ==================
+
+@dp.message(F.text == "📝 Модерация отзывов")
+async def moderation_start(message: types.Message):
+    """Вход в модерацию отзывов"""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ У вас нет доступа.")
+        return
+
+    review_ids = get_unmoderated_reviews()
+    if not review_ids:
+        await message.answer("📭 Нет отзывов на модерации.")
+        return
+
+    moderation_index[message.from_user.id] = {
+        'review_ids': review_ids,
+        'current': 0
+    }
+    await show_moderation_review(message, review_ids[0])
+
+
+async def show_moderation_review(target, review_id):
+    """Показывает один отзыв для модерации"""
+    review = get_review_by_id(review_id)
+    if not review:
+        if isinstance(target, types.Message):
+            await target.answer("❌ Отзыв не найден.")
+        else:
+            await target.message.edit_text("❌ Отзыв не найден.")
+        return
+
+    r_id, rating, comment, created_at, buyer_id, buyer_username, seller_id, seller_username = review
+    date = datetime.strptime(created_at, "%Y-%m-%d %H:%M:%S").strftime("%d.%m.%Y %H:%M")
+    text = (
+        f"📝 **Отзыв #{r_id}**\n\n"
+        f"👤 **Покупатель:** @{buyer_username or buyer_id}\n"
+        f"👤 **Продавец:** @{seller_username or seller_id}\n"
+        f"⭐ **Оценка:** {rating}/5\n"
+        f"💬 **Комментарий:** {comment if comment else '—'}\n"
+        f"📅 **Дата:** {date}\n"
+    )
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Одобрить", callback_data=f"mod_approve_{r_id}")
+    builder.button(text="❌ Отклонить", callback_data=f"mod_reject_{r_id}")
+    builder.button(text="🔍 Запросить док-ва", callback_data=f"mod_evidence_{r_id}")
+
+    # Навигация
+    user_id = target.from_user.id if isinstance(target, types.CallbackQuery) else target.chat.id
+    data = moderation_index.get(user_id)
+    if data:
+        current_idx = data['current']
+        total = len(data['review_ids'])
+        if current_idx > 0:
+            prev_id = data['review_ids'][current_idx - 1]
+            builder.button(text="⬅️ Предыдущий", callback_data=f"mod_show_{prev_id}")
+        if current_idx < total - 1:
+            next_id = data['review_ids'][current_idx + 1]
+            builder.button(text="➡️ Следующий", callback_data=f"mod_show_{next_id}")
+    builder.button(text="🔄 Обновить", callback_data=f"mod_refresh_{r_id}")
+    builder.adjust(2, 2, 2, 1)
+
+    if isinstance(target, types.Message):
+        await target.answer(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+    else:
+        await target.message.edit_text(text, parse_mode="Markdown", reply_markup=builder.as_markup())
+
+
+@dp.callback_query(F.data.startswith("mod_show_"))
+async def mod_show_callback(callback: types.CallbackQuery):
+    """Переход к другому отзыву в модерации"""
+    review_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    data = moderation_index.get(user_id)
+    if data:
+        try:
+            idx = data['review_ids'].index(review_id)
+            data['current'] = idx
+        except ValueError:
+            pass
+    await show_moderation_review(callback, review_id)
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("mod_approve_"))
+async def mod_approve_callback(callback: types.CallbackQuery):
+    """Одобрение отзыва"""
+    review_id = int(callback.data.split("_")[2])
+    admin_id = callback.from_user.id
+    result = approve_review(review_id, admin_id)
+    if result:
+        seller_id, rating, comment = result
+        await callback.answer("✅ Отзыв одобрен!")
+        # Уведомление продавцу
+        try:
+            await bot.send_message(
+                seller_id,
+                f"📢 Вам оставили новый отзыв!\n"
+                f"⭐ Оценка: {rating}/5\n"
+                f"💬 Комментарий: {comment if comment else '—'}"
+            )
+        except:
+            pass
+    else:
+        await callback.answer("❌ Ошибка при одобрении.")
+
+    # Обновляем список и показываем следующий отзыв
+    user_id = callback.from_user.id
+    data = moderation_index.get(user_id)
+    if data and data['review_ids']:
+        try:
+            idx = data['review_ids'].index(review_id)
+            data['review_ids'].pop(idx)
+            if data['review_ids']:
+                new_idx = min(idx, len(data['review_ids']) - 1)
+                data['current'] = new_idx
+                await show_moderation_review(callback, data['review_ids'][new_idx])
+            else:
+                await callback.message.edit_text("✅ Все отзывы обработаны!")
+                moderation_index.pop(user_id, None)
+        except ValueError:
+            pass
+    else:
+        await callback.message.edit_text("✅ Отзыв одобрен. Больше отзывов нет.")
+
+
+@dp.callback_query(F.data.startswith("mod_reject_"))
+async def mod_reject_callback(callback: types.CallbackQuery):
+    """Отклонение отзыва"""
+    review_id = int(callback.data.split("_")[2])
+    admin_id = callback.from_user.id
+    buyer_id = reject_review(review_id, admin_id)
+    if buyer_id:
+        await callback.answer("❌ Отзыв отклонён!")
+        # Уведомление покупателю
+        try:
+            await bot.send_message(
+                buyer_id,
+                "❌ Ваш отзыв не прошёл модерацию. Свяжитесь с администратором для уточнения причин."
+            )
+        except:
+            pass
+    else:
+        await callback.answer("❌ Ошибка при отклонении.")
+
+    # Обновляем список
+    user_id = callback.from_user.id
+    data = moderation_index.get(user_id)
+    if data and data['review_ids']:
+        try:
+            idx = data['review_ids'].index(review_id)
+            data['review_ids'].pop(idx)
+            if data['review_ids']:
+                new_idx = min(idx, len(data['review_ids']) - 1)
+                data['current'] = new_idx
+                await show_moderation_review(callback, data['review_ids'][new_idx])
+            else:
+                await callback.message.edit_text("✅ Все отзывы обработаны!")
+                moderation_index.pop(user_id, None)
+        except ValueError:
+            pass
+    else:
+        await callback.message.edit_text("✅ Отзыв отклонён. Больше отзывов нет.")
+
+
+@dp.callback_query(F.data.startswith("mod_evidence_"))
+async def mod_evidence_callback(callback: types.CallbackQuery, state: FSMContext):
+    """Запрос доказательств у покупателя"""
+    review_id = int(callback.data.split("_")[2])
+    review = get_review_by_id(review_id)
+    if not review:
+        await callback.answer("❌ Отзыв не найден.")
+        return
+    buyer_id = review[4]  # buyer_id
+    await state.update_data(evidence_review_id=review_id, evidence_buyer_id=buyer_id)
+    await state.set_state(ReviewState.waiting_for_evidence)
+    await callback.message.edit_text(
+        "📝 Введите текст запроса для покупателя (например, попросите прислать скриншоты):",
+        reply_markup=InlineKeyboardBuilder().button(text="❌ Отмена", callback_data="cancel_evidence").as_markup()
+    )
+    await callback.answer()
+
+
+@dp.message(ReviewState.waiting_for_evidence)
+async def process_evidence_request(message: types.Message, state: FSMContext):
+    """Отправка запроса доказательств покупателю"""
+    data = await state.get_data()
+    buyer_id = data['evidence_buyer_id']
+    review_id = data['evidence_review_id']
+    request_text = message.text
+    try:
+        await bot.send_message(
+            buyer_id,
+            f"🔍 Администратор запросил подтверждение по вашему отзыву #{review_id}:\n\n{request_text}\n\n"
+            f"Пожалуйста, отправьте доказательства (скриншоты) в ответном сообщении."
+        )
+        await message.answer("✅ Запрос отправлен покупателю.")
+    except Exception as e:
+        await message.answer(f"❌ Не удалось отправить сообщение покупателю: {e}")
+    await state.clear()
+    # Вернёмся к модерации
+    await moderation_start(message)
+
+
+@dp.callback_query(F.data == "cancel_evidence")
+async def cancel_evidence(callback: types.CallbackQuery, state: FSMContext):
+    """Отмена запроса доказательств"""
+    await state.clear()
+    await callback.message.edit_text("❌ Запрос доказательств отменён.")
+    await callback.answer()
+    # Вернёмся к модерации
+    await moderation_start(callback.message)
+
+
+@dp.callback_query(F.data.startswith("mod_refresh_"))
+async def mod_refresh_callback(callback: types.CallbackQuery):
+    """Обновление текущего отзыва"""
+    review_id = int(callback.data.split("_")[2])
+    await show_moderation_review(callback, review_id)
+    await callback.answer()
+
+
+# ================== ПРОДАВЕЦ (ТВОИ СТАРЫЕ ОБРАБОТЧИКИ) ==================
 @dp.message(F.text == "💰 Продавец")
 async def seller_mode(message: types.Message):
     """Режим продавца"""
@@ -1779,6 +2359,7 @@ async def seller_mode(message: types.Message):
     response += "Доступные действия:"
 
     await message.answer(response, reply_markup=get_seller_keyboard())
+
 
 # ================== ДОБАВЛЕНИЕ ТОВАРА ==================
 @dp.message(F.text == "➕ Добавить товар")
@@ -1814,11 +2395,13 @@ async def add_product_start(message: types.Message, state: FSMContext):
         )
     )
 
+
 @dp.message(F.text == "❌ Отмена")
 async def cancel_operation(message: types.Message, state: FSMContext):
     """Отмена операции"""
     await state.clear()
     await message.answer("❌ Операция отменена", reply_markup=get_seller_keyboard())
+
 
 @dp.message(ProductForm.title)
 async def process_title(message: types.Message, state: FSMContext):
@@ -1830,6 +2413,7 @@ async def process_title(message: types.Message, state: FSMContext):
     await state.set_state(ProductForm.description)
     await message.answer("📝 Введите описание товара:")
 
+
 @dp.message(ProductForm.description)
 async def process_description(message: types.Message, state: FSMContext):
     """Обработка описания товара"""
@@ -1837,12 +2421,14 @@ async def process_description(message: types.Message, state: FSMContext):
     await state.set_state(ProductForm.price)
     await message.answer("💰 Введите цену товара (например: 100 Robux):")
 
+
 @dp.message(ProductForm.price)
 async def process_price(message: types.Message, state: FSMContext):
     """Обработка цены товара"""
     await state.update_data(price=message.text)
     await state.set_state(ProductForm.contact)
     await message.answer("👤 Введите ваш username для связи (без @):")
+
 
 @dp.message(ProductForm.contact)
 async def process_contact(message: types.Message, state: FSMContext):
@@ -1875,6 +2461,7 @@ async def process_contact(message: types.Message, state: FSMContext):
     finally:
         await state.clear()
 
+
 # ================== ПРОСМОТР ТОВАРОВ ==================
 @dp.message(F.text == "📋 Мои товары")
 async def show_my_products(message: types.Message):
@@ -1900,6 +2487,7 @@ async def show_my_products(message: types.Message):
         text += f"{idx}. #{product[0]} - {product[1]}\n   💰 {product[2]} | 👤 @{product[3]}\n\n"
     await message.answer(text, reply_markup=get_seller_keyboard())
 
+
 # ================== УПРАВЛЕНИЕ ТОВАРАМИ ==================
 @dp.message(F.text == "✏️ Управление товарами")
 async def manage_products(message: types.Message):
@@ -1922,6 +2510,7 @@ async def manage_products(message: types.Message):
     keyboard = create_products_keyboard(products)
     await message.answer(text, reply_markup=keyboard)
 
+
 @dp.callback_query(F.data.startswith("delete_"))
 async def delete_product_callback(callback: types.CallbackQuery):
     product_id = callback.data.split("_")[1]
@@ -1943,6 +2532,7 @@ async def delete_product_callback(callback: types.CallbackQuery):
         await callback.answer(f"❌ Ошибка при удалении: {e}")
     await callback.answer()
 
+
 async def show_updated_products_list(message: types.Message, user_id: int):
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
@@ -1959,6 +2549,7 @@ async def show_updated_products_list(message: types.Message, user_id: int):
         text += f"#{product[0]} - {product[1]} ({product[2]})\n"
     keyboard = create_products_keyboard(products)
     await message.answer(text, reply_markup=keyboard)
+
 
 # ================== РЕДАКТИРОВАНИЕ ТОВАРА ==================
 @dp.callback_query(F.data.startswith("edit_"))
@@ -1995,6 +2586,7 @@ async def edit_product_callback(callback: types.CallbackQuery, state: FSMContext
     await callback.message.answer(text, reply_markup=get_edit_options_keyboard())
     await callback.answer()
 
+
 @dp.message(EditProductForm.waiting_for_field)
 async def process_edit_field(message: types.Message, state: FSMContext):
     if message.text == "❌ Отмена":
@@ -2016,6 +2608,7 @@ async def process_edit_field(message: types.Message, state: FSMContext):
         f"✏️ Редактирование {message.text.lower()}\n\nТекущее значение: {current_value}\n\nВведите новое значение:",
         reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
     )
+
 
 @dp.message(EditProductForm.waiting_for_new_value)
 async def process_new_value(message: types.Message, state: FSMContext):
@@ -2042,16 +2635,19 @@ async def process_new_value(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Ошибка при обновлении: {e}")
     await state.clear()
 
+
 # ================== ВОЗВРАТ В МЕНЮ ==================
 @dp.callback_query(F.data == "back_to_seller")
 async def back_to_seller_callback(callback: types.CallbackQuery):
     await callback.message.delete()
     await seller_mode(callback.message)
 
+
 @dp.message(F.text == "🏠 Главное меню")
 async def main_menu(message: types.Message):
     user_product_positions[message.from_user.id] = 0
     await cmd_start(message)
+
 
 # ================== ИСПРАВЛЕННЫЙ РАЗДЕЛ О БОТЕ ==================
 @dp.message(F.text == "ℹ️ О боте")
@@ -2063,34 +2659,36 @@ async def about_bot(message: types.Message):
         "📌 <b>О проекте:</b>\n"
         "Этот проект полностью готов заменить все чаты по <b>Steal A Brainrot</b>.\n"
         "Удобная, быстрая и безопасная платформа для торговли.\n\n"
-        
+
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>Игра:</b> Brainrot (Roblox)\n"
         "📦 <b>Товары:</b> виртуальные предметы, аккаунты, услуги\n\n"
-        
+
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "⚙️ <b>Функции:</b>\n"
         "• 🛍️ Просмотр товаров в ленте\n"
         "• 💰 Продажа своих предметов\n"
         "• ✏️ Редактирование объявлений\n"
         "• 🗑️ Удаление товаров\n"
-        "• ⭐ Система лимитов и белый список\n\n"
-        
+        "• ⭐ Система лимитов и белый список\n"
+        "• 📝 Отзывы и рейтинг продавцов\n\n"
+
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "👤 <b>Контакты администратора:</b>\n"
         "Для разблокировки, вопросов и предложений:\n"
         "📨 <b>@AbelTesayfe</b>\n\n"
-        
+
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "🛡️ <b>Правила:</b>\n"
         "• 🚫 Запрещено мошенничество\n"
         "• 💬 Общайтесь уважительно\n"
         "• ✅ Проверяйте сделки перед покупкой\n\n"
-        
+
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "✨ <b>Удачи в игре и выгодных сделок!</b>"
     )
     await message.answer(text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+
 
 @dp.message()
 async def unknown_command(message: types.Message):
@@ -2099,12 +2697,13 @@ async def unknown_command(message: types.Message):
         reply_markup=get_main_menu_keyboard()
     )
 
+
 # ================== ЗАПУСК БОТА ==================
 async def main():
     """Основная функция запуска бота"""
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v2.7 (полностью рабочая версия без psutil)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v3.0 (с системой отзывов)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
@@ -2127,6 +2726,7 @@ async def main():
         logger.info("\n👋 Бот остановлен пользователем")
     except Exception as e:
         logger.error(f"💥 Критическая ошибка: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
