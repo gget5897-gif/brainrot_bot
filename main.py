@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -134,6 +134,38 @@ def init_database():
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
+        return False
+
+
+# ================== ДОБАВЛЕННАЯ ФУНКЦИЯ (ИСПРАВЛЕНИЕ ОШИБКИ) ==================
+def get_or_create_user(user_id, username="", first_name="", last_name=""):
+    """Получаем или создаем запись о пользователе"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+
+        c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        user = c.fetchone()
+
+        if not user:
+            c.execute(
+                """INSERT INTO users (user_id, username, first_name, last_name, daily_limit) 
+                   VALUES (?, ?, ?, ?, ?)""",
+                (user_id, username, first_name, last_name, DAILY_LIMIT)
+            )
+            logger.info(f"👤 Создан новый пользователь: {username} (ID: {user_id})")
+        else:
+            c.execute(
+                """UPDATE users SET username = ?, first_name = ?, last_name = ? 
+                   WHERE user_id = ?""",
+                (username, first_name, last_name, user_id)
+            )
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_or_create_user: {e}")
         return False
 
 
@@ -2730,7 +2762,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
