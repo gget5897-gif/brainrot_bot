@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -132,11 +132,9 @@ def init_database():
 
 # ================== ИСПРАВЛЕННОЕ ДОБАВЛЕНИЕ КОЛОНОК ==================
 def add_missing_columns():
-    """Проверяет наличие нужных колонок в таблице products и добавляет их"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-
         c.execute("PRAGMA table_info(products)")
         columns = [row[1] for row in c.fetchall()]
 
@@ -170,7 +168,6 @@ def update_old_products():
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        # Для товаров, у которых expires_at NULL, устанавливаем expires_at = created_at + 3 дня
         c.execute("""
             UPDATE products 
             SET expires_at = datetime(created_at, '+3 days') 
@@ -773,10 +770,9 @@ async def send_products_page(user_id, target_message_or_callback):
         product_id, title, price, contact, seller_id, username, expires_at = product
         safe_title = title[:35] + "..." if len(title) > 35 else title
         seller_info = f"@{username}" if username else f"ID: {seller_id}"
-        # Обработка даты истечения
         if expires_at:
-            expires_str = expires_at.split('.')[0]
-            expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+            expires_clean = expires_at.split('.')[0]
+            expires_dt = datetime.strptime(expires_clean, '%Y-%m-%d %H:%M:%S')
             expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
         else:
             expires_str = 'не указано'
@@ -802,7 +798,7 @@ async def send_products_page(user_id, target_message_or_callback):
         await target_message_or_callback.answer()
     else:
         await target_message_or_callback.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
-        
+
 @dp.callback_query(F.data.startswith("admin_page_"))
 async def admin_page_callback(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -1602,11 +1598,9 @@ async def show_product_with_review_button(message: types.Message, product):
     price = product[4]
     contact = product[5]
     expires_at = product[7]
-    # Обработка даты истечения с учётом микросекунд
     if expires_at:
-        # Обрезаем микросекунды (берём часть до точки)
-        expires_str = expires_at.split('.')[0]
-        expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+        expires_clean = expires_at.split('.')[0]
+        expires_dt = datetime.strptime(expires_clean, '%Y-%m-%d %H:%M:%S')
         expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
     else:
         expires_str = 'не указано'
@@ -2099,19 +2093,11 @@ async def show_my_products(message: types.Message, state: FSMContext):
     for product in products:
         pid, title, price, contact, expires_at = product
         if expires_at:
-            expires_str = expires_at.split('.')[0]
-            expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+            expires_clean = expires_at.split('.')[0]
+            expires_dt = datetime.strptime(expires_clean, '%Y-%m-%d %H:%M:%S')
             expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
         else:
             expires_str = 'не указано'
-        text += f"#{pid} - {title}\n   💰 {price} | 👤 @{contact}\n   ⏳ Истекает: {expires_str}\n\n"
-    await message.answer(text, reply_markup=get_seller_keyboard())
-    
-        return
-    text = "📋 Ваши товары:\n\n"
-    for product in products:
-        pid, title, price, contact, expires_at = product
-        expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
         text += f"#{pid} - {title}\n   💰 {price} | 👤 @{contact}\n   ⏳ Истекает: {expires_str}\n\n"
     await message.answer(text, reply_markup=get_seller_keyboard())
 
@@ -2271,13 +2257,14 @@ async def check_expiring_products():
                 try:
                     kb = InlineKeyboardBuilder()
                     kb.button(text="⏳ Продлить на 3 дня", callback_data=f"extend_{product_id}")
+                    expires_clean = expires_at.split('.')[0]
+                    expires_dt = datetime.strptime(expires_clean, '%Y-%m-%d %H:%M:%S')
+                    expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
                     await bot.send_message(
                         seller_id,
                         f"⚠️ <b>Ваш товар скоро истечёт!</b>\n\n"
                         f"📌 Название: {title}\n"
-                        expires_str = expires_at.split('.')[0]
-expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
-f"⏳ Истекает: {expires_dt.strftime('%d.%m.%Y %H:%M')}\n\n"
+                        f"⏳ Истекает: {expires_str}\n\n"
                         f"Нажмите кнопку ниже, чтобы продлить товар ещё на 3 дня.",
                         parse_mode="HTML",
                         reply_markup=kb.as_markup()
@@ -2502,13 +2489,13 @@ async def unknown_command(message: types.Message, state: FSMContext):
 async def main():
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v4.3 (полностью рабочий, старые товары обновлены)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v4.4 (финальная версия, всё исправлено)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
         init_database()
         add_missing_columns()
-        update_old_products()   # <--- ВАЖНО: обновляем expires_at для старых товаров
+        update_old_products()   # <--- обновляем expires_at для старых товаров
 
         asyncio.create_task(check_expiring_products())
         asyncio.create_task(check_product_relevance())
@@ -2533,10 +2520,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
-
-
