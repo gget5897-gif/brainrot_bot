@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -81,7 +81,10 @@ def init_database():
             description TEXT NOT NULL,
             price TEXT NOT NULL,
             contact TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,                -- дата истечения (created + 3 дня)
+            last_extended_at TIMESTAMP,           -- дата последнего продления
+            last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- дата последней проверки актуальности
         )''')
 
         c.execute(f'''CREATE TABLE IF NOT EXISTS users (
@@ -164,25 +167,28 @@ async def get_next_product_for_user(user_id):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM products")
-        total_products = c.fetchone()[0]
+        # Показываем только товары, срок которых ещё не истёк
+        c.execute("SELECT * FROM products WHERE expires_at > ? ORDER BY id ASC", (datetime.now(),))
+        all_products = c.fetchall()
 
-        if total_products == 0:
+        if not all_products:
             conn.close()
             return None
 
         current_position = user_product_positions.get(user_id, 0)
-        c.execute("SELECT * FROM products ORDER BY id ASC")
-        all_products = c.fetchall()
+        if current_position >= len(all_products):
+            current_position = 0
+
         product = all_products[current_position]
 
         next_position = current_position + 1
-        if next_position >= total_products:
+        if next_position >= len(all_products):
             next_position = 0
 
         user_product_positions[user_id] = next_position
         conn.close()
         return product
+
     except Exception as e:
         logger.error(f"❌ Ошибка при получении товара: {e}")
         return None
@@ -192,7 +198,7 @@ async def get_first_product():
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        c.execute("SELECT * FROM products ORDER BY id ASC LIMIT 1")
+        c.execute("SELECT * FROM products WHERE expires_at > ? ORDER BY id ASC LIMIT 1", (datetime.now(),))
         product = c.fetchone()
         conn.close()
         return product
@@ -321,8 +327,10 @@ def get_all_products():
         c = conn.cursor()
         c.execute("""
             SELECT p.id, p.title, p.price, p.contact, p.seller_id,
-                   (SELECT username FROM users WHERE user_id = p.seller_id LIMIT 1) as username
-            FROM products p ORDER BY p.id DESC
+                   (SELECT username FROM users WHERE user_id = p.seller_id LIMIT 1) as username,
+                   p.expires_at
+            FROM products p 
+            ORDER BY p.id DESC
         """)
         products = c.fetchall()
         conn.close()
@@ -706,7 +714,8 @@ async def admin_show_all_products(message: types.Message, state: FSMContext):
                 p.price, 
                 p.contact, 
                 p.seller_id,
-                (SELECT username FROM users WHERE user_id = p.seller_id LIMIT 1) as username
+                (SELECT username FROM users WHERE user_id = p.seller_id LIMIT 1) as username,
+                p.expires_at
             FROM products p 
             ORDER BY p.id DESC
         """)
@@ -742,14 +751,16 @@ async def send_products_page(user_id, target_message_or_callback):
     text += f"📄 Страница {page + 1} из {total_pages}\n\n"
 
     for product in page_products:
-        product_id, title, price, contact, seller_id, username = product
+        product_id, title, price, contact, seller_id, username, expires_at = product
         safe_title = title[:35] + "..." if len(title) > 35 else title
         seller_info = f"@{username}" if username else f"ID: {seller_id}"
+        expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
         text += (
             f"<b>🔢 ID: {product_id}</b>\n"
             f"📌 {safe_title}\n"
             f"💰 {price} | 👤 {seller_info}\n"
             f"📞 @{contact}\n"
+            f"⏳ Истекает: {expires_str}\n"
             f"────────────────────\n"
         )
 
@@ -769,7 +780,6 @@ async def send_products_page(user_id, target_message_or_callback):
 
 @dp.callback_query(F.data.startswith("admin_page_"))
 async def admin_page_callback(callback: types.CallbackQuery, state: FSMContext):
-    # Здесь сбрасывать состояние не обязательно, но можно для надёжности
     await state.clear()
     user_id = callback.from_user.id
     data = admin_pages.get(user_id)
@@ -1560,13 +1570,23 @@ async def next_product(message: types.Message, state: FSMContext):
         await message.answer("😔 Товаров больше нет")
 
 async def show_product_with_review_button(message: types.Message, product):
-    product_id, seller_id, title, description, price, contact, _ = product
+    # product = (id, seller_id, title, description, price, contact, created_at, expires_at, last_extended_at, last_checked_at)
+    # индексы: 0:id, 1:seller_id, 2:title, 3:description, 4:price, 5:contact, 6:created_at, 7:expires_at, ...
+    product_id = product[0]
+    seller_id = product[1]
+    title = product[2]
+    description = product[3]
+    price = product[4]
+    contact = product[5]
+    expires_at = product[7]
+    expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
     text = (
         f"🛒 Товар #{product_id}\n\n"
         f"📌 Название: {title}\n"
         f"📝 Описание: {description}\n"
         f"💰 Цена: {price}\n"
-        f"👤 Контакты: @{contact}"
+        f"👤 Контакты: @{contact}\n"
+        f"⏳ Истекает: {expires_str}"
     )
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Купить", callback_data=f"buy_{product_id}")
@@ -1616,7 +1636,6 @@ async def show_seller_reviews(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("rev_load:"))
 async def load_reviews_page(callback: types.CallbackQuery, state: FSMContext):
-    # Здесь состояние сбрасывать не обязательно, но можно
     await state.clear()
     _, seller_id, page_str = callback.data.split(":")
     seller_id = int(seller_id)
@@ -2013,20 +2032,27 @@ async def process_contact(message: types.Message, state: FSMContext):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
+        # Вычисляем дату истечения (3 дня от текущего момента)
+        expires_at = datetime.now() + timedelta(days=3)
         c.execute(
-            """INSERT INTO products (seller_id, title, description, price, contact) 
-               VALUES (?, ?, ?, ?, ?)""",
-            (message.from_user.id, data['title'], data['description'], data['price'], message.text)
+            """INSERT INTO products 
+               (seller_id, title, description, price, contact, created_at, expires_at, last_checked_at) 
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (message.from_user.id, data['title'], data['description'], 
+             data['price'], message.text, datetime.now(), expires_at, datetime.now())
         )
         conn.commit()
         conn.close()
+
         can_add, limit_message = can_user_add_product(message.from_user.id)
+
         await message.answer(
             f"✅ Товар добавлен!\n\n"
             f"📌 Название: {data['title']}\n"
             f"📝 Описание: {data['description']}\n"
             f"💰 Цена: {data['price']}\n"
-            f"👤 Контакты: @{message.text}\n\n"
+            f"👤 Контакты: @{message.text}\n"
+            f"⏳ Истекает: {expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             f"{limit_message}",
             reply_markup=get_seller_keyboard()
         )
@@ -2041,7 +2067,7 @@ async def show_my_products(message: types.Message, state: FSMContext):
     conn = sqlite3.connect('brainrot_shop.db')
     c = conn.cursor()
     c.execute(
-        """SELECT id, title, price, contact FROM products WHERE seller_id = ? ORDER BY id DESC""",
+        """SELECT id, title, price, contact, expires_at FROM products WHERE seller_id = ? ORDER BY id DESC""",
         (message.from_user.id,)
     )
     products = c.fetchall()
@@ -2053,8 +2079,10 @@ async def show_my_products(message: types.Message, state: FSMContext):
         )
         return
     text = "📋 Ваши товары:\n\n"
-    for idx, product in enumerate(products, 1):
-        text += f"{idx}. #{product[0]} - {product[1]}\n   💰 {product[2]} | 👤 @{product[3]}\n\n"
+    for product in products:
+        pid, title, price, contact, expires_at = product
+        expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
+        text += f"#{pid} - {title}\n   💰 {price} | 👤 @{contact}\n   ⏳ Истекает: {expires_str}\n\n"
     await message.answer(text, reply_markup=get_seller_keyboard())
 
 @dp.message(F.text == "✏️ Управление товарами")
@@ -2194,6 +2222,212 @@ async def back_to_seller_callback(callback: types.CallbackQuery, state: FSMConte
     await callback.message.delete()
     await seller_mode(callback.message, state)
 
+# ================== ФОНОВАЯ ЗАДАЧА: УВЕДОМЛЕНИЯ ОБ ИСТЕЧЕНИИ ==================
+async def check_expiring_products():
+    """Проверяет товары, которые истекают через 6 часов, и отправляет уведомления"""
+    while True:
+        try:
+            conn = sqlite3.connect('brainrot_shop.db')
+            c = conn.cursor()
+            # Ищем товары, у которых expires_at между сейчас и через 6 часов
+            time_6h_later = datetime.now() + timedelta(hours=6)
+            c.execute("""
+                SELECT id, seller_id, title, expires_at 
+                FROM products 
+                WHERE expires_at BETWEEN ? AND ?
+            """, (datetime.now(), time_6h_later))
+            expiring_products = c.fetchall()
+            conn.close()
+            for product in expiring_products:
+                product_id, seller_id, title, expires_at = product
+                # Отправляем уведомление продавцу
+                try:
+                    kb = InlineKeyboardBuilder()
+                    kb.button(text="⏳ Продлить на 3 дня", callback_data=f"extend_{product_id}")
+                    await bot.send_message(
+                        seller_id,
+                        f"⚠️ <b>Ваш товар скоро истечёт!</b>\n\n"
+                        f"📌 Название: {title}\n"
+                        f"⏳ Истекает: {datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M')}\n\n"
+                        f"Нажмите кнопку ниже, чтобы продлить товар ещё на 3 дня.",
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
+                    )
+                    logger.info(f"✅ Уведомление об истечении отправлено продавцу {seller_id} для товара {product_id}")
+                except Exception as e:
+                    logger.error(f"❌ Не удалось отправить уведомление продавцу {seller_id}: {e}")
+            # Ждём 1 час до следующей проверки
+            await asyncio.sleep(3600)
+        except Exception as e:
+            logger.error(f"❌ Ошибка в фоновой задаче проверки истечения: {e}")
+            await asyncio.sleep(3600)
+
+# ================== ФОНОВАЯ ЗАДАЧА: ПРОВЕРКА АКТУАЛЬНОСТИ ==================
+async def check_product_relevance():
+    """Раз в 3 дня спрашивает продавца, актуален ли товар"""
+    while True:
+        try:
+            conn = sqlite3.connect('brainrot_shop.db')
+            c = conn.cursor()
+            # Находим товары, которые не проверялись больше 3 дней и ещё не истекли
+            three_days_ago = datetime.now() - timedelta(days=3)
+            c.execute("""
+                SELECT id, seller_id, title 
+                FROM products 
+                WHERE last_checked_at < ? AND expires_at > ?
+            """, (three_days_ago, datetime.now()))
+            products_to_check = c.fetchall()
+            conn.close()
+            for product_id, seller_id, title in products_to_check:
+                try:
+                    kb = InlineKeyboardBuilder()
+                    kb.button(text="✅ Продан, удалить", callback_data=f"sold_{product_id}")
+                    kb.button(text="❌ Ещё продаётся", callback_data=f"still_selling_{product_id}")
+                    kb.adjust(1)
+                    await bot.send_message(
+                        seller_id,
+                        f"❓ <b>Проверка актуальности товара</b>\n\n"
+                        f"📌 Название: {title}\n\n"
+                        f"Товар всё ещё продаётся?",
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
+                    )
+                    logger.info(f"✅ Запрос актуальности отправлен продавцу {seller_id} для товара {product_id}")
+                    # Обновляем last_checked_at сразу, чтобы не спамить
+                    conn = sqlite3.connect('brainrot_shop.db')
+                    c = conn.cursor()
+                    c.execute("UPDATE products SET last_checked_at = ? WHERE id = ?", 
+                             (datetime.now(), product_id))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при отправке запроса актуальности для товара {product_id}: {e}")
+            # Ждём 6 часов (можно изменить)
+            await asyncio.sleep(6 * 3600)
+        except Exception as e:
+            logger.error(f"❌ Ошибка в фоновой задаче проверки актуальности: {e}")
+            await asyncio.sleep(3600)
+
+# ================== ОБРАБОТЧИКИ ПРОДЛЕНИЯ И ПРОВЕРКИ АКТУАЛЬНОСТИ ==================
+@dp.callback_query(F.data.startswith("extend_"))
+async def extend_product_callback(callback: types.CallbackQuery):
+    """Продление товара на 3 дня"""
+    product_id = int(callback.data.split("_")[1])
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT seller_id, title, expires_at, last_extended_at FROM products WHERE id = ?", (product_id,))
+        product = c.fetchone()
+        if not product:
+            await callback.answer("❌ Товар не найден!", show_alert=True)
+            conn.close()
+            return
+        seller_id, title, expires_at, last_extended_at = product
+        if callback.from_user.id != seller_id:
+            await callback.answer("❌ Вы не можете продлить чужой товар!", show_alert=True)
+            conn.close()
+            return
+        # Проверяем, можно ли продлить (не прошло ли 3 дня с последнего продления)
+        if last_extended_at:
+            last_extended = datetime.strptime(last_extended_at, '%Y-%m-%d %H:%M:%S')
+            if datetime.now() - last_extended < timedelta(days=3):
+                remaining = timedelta(days=3) - (datetime.now() - last_extended)
+                hours = int(remaining.total_seconds() // 3600)
+                await callback.answer(f"⏳ Продлить можно будет через {hours} часов", show_alert=True)
+                conn.close()
+                return
+        new_expires_at = datetime.now() + timedelta(days=3)
+        c.execute(
+            "UPDATE products SET expires_at = ?, last_extended_at = ? WHERE id = ?",
+            (new_expires_at, datetime.now(), product_id)
+        )
+        conn.commit()
+        conn.close()
+        await callback.message.edit_text(
+            f"✅ <b>Товар успешно продлён!</b>\n\n"
+            f"📌 Название: {title}\n"
+            f"⏳ Новая дата истечения: {new_expires_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"Следующее продление будет доступно через 3 дня.",
+            parse_mode="HTML"
+        )
+        await callback.answer("✅ Товар продлён на 3 дня!", show_alert=False)
+    except Exception as e:
+        logger.error(f"❌ Ошибка при продлении товара {product_id}: {e}")
+        await callback.answer("❌ Произошла ошибка при продлении", show_alert=True)
+
+@dp.callback_query(F.data.startswith("sold_"))
+async def mark_as_sold(callback: types.CallbackQuery):
+    """Отметить товар как проданный и удалить"""
+    product_id = int(callback.data.split("_")[1])
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT seller_id, title FROM products WHERE id = ?", (product_id,))
+        product = c.fetchone()
+        if not product:
+            await callback.answer("❌ Товар не найден!", show_alert=True)
+            conn.close()
+            return
+        seller_id, title = product
+        if callback.from_user.id != seller_id and callback.from_user.id not in ADMIN_IDS:
+            await callback.answer("❌ Только продавец может отметить товар как проданный!", show_alert=True)
+            conn.close()
+            return
+        c.execute("DELETE FROM products WHERE id = ?", (product_id,))
+        conn.commit()
+        conn.close()
+        await callback.message.edit_text(
+            f"✅ Товар <b>{title}</b> отмечен как проданный и удалён из ленты.",
+            parse_mode="HTML"
+        )
+        await callback.answer("✅ Товар удалён", show_alert=False)
+        # Уведомление администратора
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"📊 Продавец @{callback.from_user.username or callback.from_user.id} отметил товар как проданный:\n"
+                    f"📌 {title}\n"
+                    f"🆔 Товар #{product_id}"
+                )
+            except:
+                pass
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отметке товара {product_id} как проданного: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+@dp.callback_query(F.data.startswith("still_selling_"))
+async def mark_as_still_selling(callback: types.CallbackQuery):
+    """Подтвердить, что товар ещё продаётся"""
+    product_id = int(callback.data.split("_")[2])
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT seller_id, title FROM products WHERE id = ?", (product_id,))
+        product = c.fetchone()
+        if not product:
+            await callback.answer("❌ Товар не найден!", show_alert=True)
+            conn.close()
+            return
+        seller_id, title = product
+        if callback.from_user.id != seller_id and callback.from_user.id not in ADMIN_IDS:
+            await callback.answer("❌ Только продавец может подтвердить актуальность!", show_alert=True)
+            conn.close()
+            return
+        c.execute("UPDATE products SET last_checked_at = ? WHERE id = ?", (datetime.now(), product_id))
+        conn.commit()
+        conn.close()
+        await callback.message.edit_text(
+            f"✅ Спасибо! Товар <b>{title}</b> остаётся в ленте.\n"
+            f"Следующая проверка через 3 дня.",
+            parse_mode="HTML"
+        )
+        await callback.answer("✅ Актуальность подтверждена", show_alert=False)
+    except Exception as e:
+        logger.error(f"❌ Ошибка при подтверждении актуальности товара {product_id}: {e}")
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+# ================== ГЛАВНОЕ МЕНЮ ==================
 @dp.message(F.text == "🏠 Главное меню")
 async def main_menu(message: types.Message, state: FSMContext):
     await state.clear()
@@ -2220,7 +2454,9 @@ async def about_bot(message: types.Message, state: FSMContext):
         "• ✏️ Редактирование объявлений\n"
         "• 🗑️ Удаление товаров\n"
         "• ⭐ Система лимитов и белый список\n"
-        "• 📝 Отзывы и рейтинг продавцов\n\n"
+        "• 📝 Отзывы и рейтинг продавцов\n"
+        "• ⏳ Автоматическое истечение товаров через 3 дня\n"
+        "• 🔄 Продление и проверка актуальности\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━\n"
         "👤 <b>Контакты администратора:</b>\n"
         "📨 <b>@AbelTesayfe</b>\n\n"
@@ -2242,18 +2478,22 @@ async def unknown_command(message: types.Message, state: FSMContext):
             "🤔 Я не понял вашу команду.\n\nИспользуйте кнопки меню или команду /start",
             reply_markup=get_main_menu_keyboard()
         )
-    # Если состояние активно, игнорируем, так как пользователь должен вводить данные
+    # Если состояние активно, игнорируем
 
 # ================== ЗАПУСК БОТА ==================
 async def main():
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v3.6 (полностью рабочий, все кнопки реагируют)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v4.0 (полностью рабочий с истечением и актуальностью)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
         # Создаём таблицы при запуске
         init_database()
+
+        # Запускаем фоновые задачи
+        asyncio.create_task(check_expiring_products())
+        asyncio.create_task(check_product_relevance())
 
         bot_info = await bot.get_me()
         logger.info(f"✅ Бот подключен: @{bot_info.username}")
@@ -2275,4 +2515,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
