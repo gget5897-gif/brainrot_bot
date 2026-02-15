@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -137,27 +137,21 @@ def add_missing_columns():
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
 
-        # Получаем список существующих колонок
         c.execute("PRAGMA table_info(products)")
         columns = [row[1] for row in c.fetchall()]
 
-        # Добавляем expires_at
         if 'expires_at' not in columns:
             c.execute("ALTER TABLE products ADD COLUMN expires_at TIMESTAMP")
             logger.info("✅ Добавлена колонка expires_at")
 
-        # Добавляем last_extended_at
         if 'last_extended_at' not in columns:
             c.execute("ALTER TABLE products ADD COLUMN last_extended_at TIMESTAMP")
             logger.info("✅ Добавлена колонка last_extended_at")
 
-        # Добавляем last_checked_at (без DEFAULT, чтобы избежать ошибки)
         if 'last_checked_at' not in columns:
             try:
-                # Сначала добавляем колонку без DEFAULT
                 c.execute("ALTER TABLE products ADD COLUMN last_checked_at TIMESTAMP")
                 logger.info("✅ Добавлена колонка last_checked_at (без DEFAULT)")
-                # Затем устанавливаем значение для существующих записей
                 c.execute("UPDATE products SET last_checked_at = CURRENT_TIMESTAMP WHERE last_checked_at IS NULL")
                 logger.info("✅ Установлено значение last_checked_at для существующих записей")
             except sqlite3.OperationalError as e:
@@ -170,16 +164,33 @@ def add_missing_columns():
         logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
 
-# ================== ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==================
-def get_or_create_user(user_id, username="", first_name="", last_name=""):
-    """Получает или создаёт запись о пользователе"""
+# ================== ОБНОВЛЕНИЕ СТАРЫХ ТОВАРОВ ==================
+def update_old_products():
+    """Проставляет expires_at для старых товаров, у которых это поле NULL"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
+        # Для товаров, у которых expires_at NULL, устанавливаем expires_at = created_at + 3 дня
+        c.execute("""
+            UPDATE products 
+            SET expires_at = datetime(created_at, '+3 days') 
+            WHERE expires_at IS NULL
+        """)
+        affected = c.rowcount
+        if affected > 0:
+            logger.info(f"✅ Обновлено {affected} старых товаров: проставлен expires_at")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обновлении старых товаров: {e}")
 
+# ================== ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==================
+def get_or_create_user(user_id, username="", first_name="", last_name=""):
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
         c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         user = c.fetchone()
-
         if not user:
             c.execute(
                 """INSERT INTO users (user_id, username, first_name, last_name, daily_limit) 
@@ -193,7 +204,6 @@ def get_or_create_user(user_id, username="", first_name="", last_name=""):
                    WHERE user_id = ?""",
                 (username, first_name, last_name, user_id)
             )
-
         conn.commit()
         conn.close()
         return True
@@ -202,7 +212,6 @@ def get_or_create_user(user_id, username="", first_name="", last_name=""):
         return False
 
 def check_if_user_banned(user_id):
-    """Проверка, забанен ли пользователь"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -217,7 +226,6 @@ def check_if_user_banned(user_id):
         return False, None
 
 def ban_user_in_db(user_id, reason, admin_id):
-    """Блокирует пользователя в базе данных"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -231,7 +239,6 @@ def ban_user_in_db(user_id, reason, admin_id):
         return False
 
 def unban_user_in_db(user_id, admin_id):
-    """Разблокирует пользователя в базе данных"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -245,7 +252,6 @@ def unban_user_in_db(user_id, admin_id):
         return False
 
 def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
-    """Логирование действий админа"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -257,9 +263,8 @@ def log_admin_action(admin_id, action_type, target_id=None, target_type=None, re
     except Exception as e:
         logger.error(f"❌ Ошибка логирования действия админа: {e}")
         return False
-        
+
 def get_user_by_id_or_username(search_term):
-    """Находит пользователя по ID или username"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -275,7 +280,6 @@ def get_user_by_id_or_username(search_term):
         return None
 
 def is_user_whitelisted(user_id):
-    """Проверяет, находится ли пользователь в белом списке"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -288,7 +292,6 @@ def is_user_whitelisted(user_id):
         return False
 
 def get_whitelist():
-    """Возвращает список пользователей в белом списке"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -301,7 +304,6 @@ def get_whitelist():
         return []
 
 def add_to_whitelist(user_id, admin_id):
-    """Добавляет пользователя в белый список"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -316,7 +318,6 @@ def add_to_whitelist(user_id, admin_id):
         return False, f"❌ Ошибка: {e}"
 
 def remove_from_whitelist(user_id, admin_id):
-    """Удаляет пользователя из белого списка"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -330,22 +331,7 @@ def remove_from_whitelist(user_id, admin_id):
         logger.error(f"❌ Ошибка при удалении из белого списка: {e}")
         return False, f"❌ Ошибка: {e}"
 
-def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
-    """Логирование действий админа"""
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, reason, details) VALUES (?, ?, ?, ?, ?, ?)""",
-                  (admin_id, action_type, target_id, target_type, reason, details))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка логирования действия админа: {e}")
-        return False
-
 def get_all_products():
-    """Получает все товары для админки"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -364,7 +350,6 @@ def get_all_products():
         return []
 
 def get_product_by_id(product_id):
-    """Получает товар по ID"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -377,7 +362,6 @@ def get_product_by_id(product_id):
         return None
 
 def get_all_products_count():
-    """Получает количество товаров"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -389,7 +373,34 @@ def get_all_products_count():
         logger.error(f"❌ Ошибка в get_all_products_count: {e}")
         return 0
 
-# ================== ФУНКЦИИ ДЛЯ ТОВАРОВ ==================
+def can_user_add_product(user_id):
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT is_banned, is_whitelisted, daily_limit FROM users WHERE user_id = ?", (user_id,))
+        user_info = c.fetchone()
+        if not user_info:
+            return False, "❌ Ошибка: пользователь не найден в системе."
+        is_banned, is_whitelisted, daily_limit = user_info
+        if is_banned:
+            c.execute("SELECT ban_reason FROM users WHERE user_id = ?", (user_id,))
+            ban_reason = c.fetchone()[0]
+            return False, f"⛔ Вы забанены! Причина: {ban_reason}"
+        if is_whitelisted:
+            conn.close()
+            return True, "✅ Вы в белом списке! Лимитов нет."
+        time_24h_ago = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+        c.execute("SELECT COUNT(*) FROM products WHERE seller_id = ? AND created_at >= ?", (user_id, time_24h_ago))
+        products_last_24h = c.fetchone()[0]
+        conn.close()
+        if products_last_24h >= daily_limit:
+            return False, (f"❌ **Лимит исчерпан!**\n\nВы можете добавить только {daily_limit} товаров в сутки.\nВы уже добавили {products_last_24h} товаров за последние 24 часа.\nПопробуйте позже или свяжитесь с администратором.")
+        remaining = daily_limit - products_last_24h
+        return True, f"✅ Лимит: {products_last_24h}/{daily_limit} (осталось {remaining})"
+    except Exception as e:
+        logger.error(f"❌ Ошибка в can_user_add_product: {e}")
+        return False, "❌ Произошла ошибка при проверке лимита."
+
 async def get_next_product_for_user(user_id):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -424,34 +435,6 @@ async def get_first_product():
     except Exception as e:
         logger.error(f"❌ Ошибка при получении первого товара: {e}")
         return None
-
-def can_user_add_product(user_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("SELECT is_banned, is_whitelisted, daily_limit FROM users WHERE user_id = ?", (user_id,))
-        user_info = c.fetchone()
-        if not user_info:
-            return False, "❌ Ошибка: пользователь не найден в системе."
-        is_banned, is_whitelisted, daily_limit = user_info
-        if is_banned:
-            c.execute("SELECT ban_reason FROM users WHERE user_id = ?", (user_id,))
-            ban_reason = c.fetchone()[0]
-            return False, f"⛔ Вы забанены! Причина: {ban_reason}"
-        if is_whitelisted:
-            conn.close()
-            return True, "✅ Вы в белом списке! Лимитов нет."
-        time_24h_ago = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-        c.execute("SELECT COUNT(*) FROM products WHERE seller_id = ? AND created_at >= ?", (user_id, time_24h_ago))
-        products_last_24h = c.fetchone()[0]
-        conn.close()
-        if products_last_24h >= daily_limit:
-            return False, (f"❌ **Лимит исчерпан!**\n\nВы можете добавить только {daily_limit} товаров в сутки.\nВы уже добавили {products_last_24h} товаров за последние 24 часа.\nПопробуйте позже или свяжитесь с администратором.")
-        remaining = daily_limit - products_last_24h
-        return True, f"✅ Лимит: {products_last_24h}/{daily_limit} (осталось {remaining})"
-    except Exception as e:
-        logger.error(f"❌ Ошибка в can_user_add_product: {e}")
-        return False, "❌ Произошла ошибка при проверке лимита."
 
 # ================== ФУНКЦИИ ДЛЯ ОТЗЫВОВ ==================
 def get_seller_rating(seller_id):
@@ -742,12 +725,10 @@ async def admin_show_all_products(message: types.Message, state: FSMContext):
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM products")
         total_count = c.fetchone()[0]
-
         if total_count == 0:
             await message.answer("📭 В базе данных пока нет товаров.")
             conn.close()
             return
-
         c.execute("""
             SELECT 
                 p.id, 
@@ -762,15 +743,12 @@ async def admin_show_all_products(message: types.Message, state: FSMContext):
         """)
         all_products = c.fetchall()
         conn.close()
-
         admin_pages[message.from_user.id] = {
             'products': all_products,
             'page': 0,
             'total': total_count
         }
-
         await send_products_page(message.from_user.id, message)
-
     except Exception as e:
         logger.error(f"❌ Ошибка в admin_show_all_products: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при загрузке товаров.")
@@ -787,10 +765,8 @@ async def send_products_page(user_id, target_message_or_callback):
     end = start + per_page
     page_products = products[start:end]
     total_pages = (total + per_page - 1) // per_page
-
     text = f"📋 <b>Все товары в базе (всего: {total})</b>\n"
     text += f"📄 Страница {page + 1} из {total_pages}\n\n"
-
     for product in page_products:
         product_id, title, price, contact, seller_id, username, expires_at = product
         safe_title = title[:35] + "..." if len(title) > 35 else title
@@ -804,7 +780,6 @@ async def send_products_page(user_id, target_message_or_callback):
             f"⏳ Истекает: {expires_str}\n"
             f"────────────────────\n"
         )
-
     builder = InlineKeyboardBuilder()
     if page > 0:
         builder.button(text="⬅️ Назад", callback_data="admin_page_prev")
@@ -812,7 +787,6 @@ async def send_products_page(user_id, target_message_or_callback):
         builder.button(text="➡️ Вперёд", callback_data="admin_page_next")
     builder.button(text="🔄 Обновить", callback_data="admin_page_refresh")
     builder.adjust(2)
-
     if isinstance(target_message_or_callback, types.CallbackQuery):
         await target_message_or_callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
         await target_message_or_callback.answer()
@@ -2508,15 +2482,14 @@ async def unknown_command(message: types.Message, state: FSMContext):
 async def main():
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v4.2 (полностью рабочий, все функции присутствуют)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v4.3 (полностью рабочий, старые товары обновлены)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
-        # Инициализация базы и добавление колонок
         init_database()
         add_missing_columns()
+        update_old_products()   # <--- ВАЖНО: обновляем expires_at для старых товаров
 
-        # Запуск фоновых задач
         asyncio.create_task(check_expiring_products())
         asyncio.create_task(check_product_relevance())
 
@@ -2540,16 +2513,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
-
-
-
-
-
-
-
-
