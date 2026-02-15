@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -70,6 +70,7 @@ class ReviewState(StatesGroup):
 
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
+    """Создаёт таблицы, если их нет"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -81,10 +82,7 @@ def init_database():
             description TEXT NOT NULL,
             price TEXT NOT NULL,
             contact TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP,                -- дата истечения (created + 3 дня)
-            last_extended_at TIMESTAMP,           -- дата последнего продления
-            last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- дата последней проверки актуальности
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
 
         c.execute(f'''CREATE TABLE IF NOT EXISTS users (
@@ -130,6 +128,39 @@ def init_database():
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
+        return False
+
+# ================== ДОБАВЛЕНИЕ НЕДОСТАЮЩИХ КОЛОНОК ==================
+def add_missing_columns():
+    """Проверяет наличие нужных колонок в таблице products и добавляет их, если они отсутствуют"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        
+        # Получаем список существующих колонок
+        c.execute("PRAGMA table_info(products)")
+        columns = [row[1] for row in c.fetchall()]
+        
+        # Добавляем expires_at, если его нет
+        if 'expires_at' not in columns:
+            c.execute("ALTER TABLE products ADD COLUMN expires_at TIMESTAMP")
+            logger.info("✅ Добавлена колонка expires_at")
+        
+        # Добавляем last_extended_at
+        if 'last_extended_at' not in columns:
+            c.execute("ALTER TABLE products ADD COLUMN last_extended_at TIMESTAMP")
+            logger.info("✅ Добавлена колонка last_extended_at")
+        
+        # Добавляем last_checked_at
+        if 'last_checked_at' not in columns:
+            c.execute("ALTER TABLE products ADD COLUMN last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            logger.info("✅ Добавлена колонка last_checked_at")
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
 
 
@@ -2490,6 +2521,8 @@ async def main():
 
         # Создаём таблицы при запуске
         init_database()
+        # Добавляем недостающие колонки
+        add_missing_columns()
 
         # Запускаем фоновые задачи
         asyncio.create_task(check_expiring_products())
@@ -2515,6 +2548,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
