@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -169,7 +169,6 @@ def add_missing_columns():
     except Exception as e:
         logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
-
 # ================== ФУНКЦИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==================
 def get_or_create_user(user_id, username="", first_name="", last_name=""):
     """Получает или создаёт запись о пользователе"""
@@ -2352,4 +2351,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
