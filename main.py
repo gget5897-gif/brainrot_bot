@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -765,13 +765,21 @@ async def send_products_page(user_id, target_message_or_callback):
     end = start + per_page
     page_products = products[start:end]
     total_pages = (total + per_page - 1) // per_page
+
     text = f"📋 <b>Все товары в базе (всего: {total})</b>\n"
     text += f"📄 Страница {page + 1} из {total_pages}\n\n"
+
     for product in page_products:
         product_id, title, price, contact, seller_id, username, expires_at = product
         safe_title = title[:35] + "..." if len(title) > 35 else title
         seller_info = f"@{username}" if username else f"ID: {seller_id}"
-        expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
+        # Обработка даты истечения
+        if expires_at:
+            expires_str = expires_at.split('.')[0]
+            expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+            expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
+        else:
+            expires_str = 'не указано'
         text += (
             f"<b>🔢 ID: {product_id}</b>\n"
             f"📌 {safe_title}\n"
@@ -780,6 +788,7 @@ async def send_products_page(user_id, target_message_or_callback):
             f"⏳ Истекает: {expires_str}\n"
             f"────────────────────\n"
         )
+
     builder = InlineKeyboardBuilder()
     if page > 0:
         builder.button(text="⬅️ Назад", callback_data="admin_page_prev")
@@ -787,12 +796,13 @@ async def send_products_page(user_id, target_message_or_callback):
         builder.button(text="➡️ Вперёд", callback_data="admin_page_next")
     builder.button(text="🔄 Обновить", callback_data="admin_page_refresh")
     builder.adjust(2)
+
     if isinstance(target_message_or_callback, types.CallbackQuery):
         await target_message_or_callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
         await target_message_or_callback.answer()
     else:
         await target_message_or_callback.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
-
+        
 @dp.callback_query(F.data.startswith("admin_page_"))
 async def admin_page_callback(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -1592,7 +1602,14 @@ async def show_product_with_review_button(message: types.Message, product):
     price = product[4]
     contact = product[5]
     expires_at = product[7]
-    expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
+    # Обработка даты истечения с учётом микросекунд
+    if expires_at:
+        # Обрезаем микросекунды (берём часть до точки)
+        expires_str = expires_at.split('.')[0]
+        expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+        expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
+    else:
+        expires_str = 'не указано'
     text = (
         f"🛒 Товар #{product_id}\n\n"
         f"📌 Название: {title}\n"
@@ -1607,18 +1624,6 @@ async def show_product_with_review_button(message: types.Message, product):
     builder.button(text="🏠 Главное меню", callback_data="back_to_main")
     builder.adjust(2)
     await message.answer(text, reply_markup=builder.as_markup())
-
-@dp.callback_query(F.data.startswith("buy_"))
-async def buy_callback(callback: types.CallbackQuery):
-    await callback.message.answer(
-        "🎉 Отличный выбор!\n\n"
-        "📞 Свяжитесь с продавцом по указанному username.\n\n"
-        "⚠️ Будьте осторожны:\n"
-        "• Не переводите деньги заранее\n"
-        "• Договоритесь о безопасной сделке\n\n"
-        "Удачи в игре! 🎮"
-    )
-    await callback.answer()
 
 @dp.callback_query(F.data == "back_to_main")
 async def back_to_main_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -2093,6 +2098,19 @@ async def show_my_products(message: types.Message, state: FSMContext):
     text = "📋 Ваши товары:\n\n"
     for product in products:
         pid, title, price, contact, expires_at = product
+        if expires_at:
+            expires_str = expires_at.split('.')[0]
+            expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+            expires_str = expires_dt.strftime('%d.%m.%Y %H:%M')
+        else:
+            expires_str = 'не указано'
+        text += f"#{pid} - {title}\n   💰 {price} | 👤 @{contact}\n   ⏳ Истекает: {expires_str}\n\n"
+    await message.answer(text, reply_markup=get_seller_keyboard())
+    
+        return
+    text = "📋 Ваши товары:\n\n"
+    for product in products:
+        pid, title, price, contact, expires_at = product
         expires_str = datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M') if expires_at else 'не указано'
         text += f"#{pid} - {title}\n   💰 {price} | 👤 @{contact}\n   ⏳ Истекает: {expires_str}\n\n"
     await message.answer(text, reply_markup=get_seller_keyboard())
@@ -2257,7 +2275,9 @@ async def check_expiring_products():
                         seller_id,
                         f"⚠️ <b>Ваш товар скоро истечёт!</b>\n\n"
                         f"📌 Название: {title}\n"
-                        f"⏳ Истекает: {datetime.strptime(expires_at, '%Y-%m-%d %H:%M:%S').strftime('%d.%m.%Y %H:%M')}\n\n"
+                        expires_str = expires_at.split('.')[0]
+expires_dt = datetime.strptime(expires_str, '%Y-%m-%d %H:%M:%S')
+f"⏳ Истекает: {expires_dt.strftime('%d.%m.%Y %H:%M')}\n\n"
                         f"Нажмите кнопку ниже, чтобы продлить товар ещё на 3 дня.",
                         parse_mode="HTML",
                         reply_markup=kb.as_markup()
@@ -2513,6 +2533,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
