@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -129,40 +129,39 @@ def init_database():
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
         return False
-
 # ================== ДОБАВЛЕНИЕ НЕДОСТАЮЩИХ КОЛОНОК ==================
 def add_missing_columns():
-    """Проверяет наличие нужных колонок в таблице products и добавляет их, если они отсутствуют"""
+    """Пытается добавить недостающие колонки в таблицу products, игнорируя ошибки дублирования"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        
-        # Получаем список существующих колонок
-        c.execute("PRAGMA table_info(products)")
-        columns = [row[1] for row in c.fetchall()]
-        
-        # Добавляем expires_at, если его нет
-        if 'expires_at' not in columns:
+        # Добавляем expires_at
+        try:
             c.execute("ALTER TABLE products ADD COLUMN expires_at TIMESTAMP")
             logger.info("✅ Добавлена колонка expires_at")
-        
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                logger.error(f"Ошибка при добавлении expires_at: {e}")
         # Добавляем last_extended_at
-        if 'last_extended_at' not in columns:
+        try:
             c.execute("ALTER TABLE products ADD COLUMN last_extended_at TIMESTAMP")
             logger.info("✅ Добавлена колонка last_extended_at")
-        
-        # Добавляем last_checked_at
-        if 'last_checked_at' not in columns:
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                logger.error(f"Ошибка при добавлении last_extended_at: {e}")
+        # Добавляем last_checked_at с DEFAULT CURRENT_TIMESTAMP
+        try:
             c.execute("ALTER TABLE products ADD COLUMN last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
             logger.info("✅ Добавлена колонка last_checked_at")
-        
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e):
+                logger.error(f"Ошибка при добавлении last_checked_at: {e}")
         conn.commit()
         conn.close()
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
-
 
 def get_or_create_user(user_id, username="", first_name="", last_name=""):
     try:
@@ -2548,6 +2547,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
