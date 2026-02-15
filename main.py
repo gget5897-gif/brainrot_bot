@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -244,6 +244,20 @@ def unban_user_in_db(user_id, admin_id):
         logger.error(f"❌ Ошибка при разбане пользователя: {e}")
         return False
 
+def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
+    """Логирование действий админа"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, reason, details) VALUES (?, ?, ?, ?, ?, ?)""",
+                  (admin_id, action_type, target_id, target_type, reason, details))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка логирования действия админа: {e}")
+        return False
+        
 def get_user_by_id_or_username(search_term):
     """Находит пользователя по ID или username"""
     try:
@@ -2526,6 +2540,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
