@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -70,6 +70,7 @@ class ReviewState(StatesGroup):
 
 # ================== БАЗА ДАННЫХ ==================
 def init_database():
+    """Создаёт таблицы, если их нет"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -128,9 +129,10 @@ def init_database():
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
         return False
-# ================== ДОБАВЛЕНИЕ НЕДОСТАЮЩИХ КОЛОНОК (ГАРАНТИРОВАННО) ==================
+
+# ================== ИСПРАВЛЕННОЕ ДОБАВЛЕНИЕ КОЛОНОК ==================
 def add_missing_columns():
-    """Проверяет наличие нужных колонок в таблице products и добавляет их, обходя ограничения SQLite"""
+    """Проверяет наличие нужных колонок в таблице products и добавляет их"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
@@ -155,7 +157,7 @@ def add_missing_columns():
                 # Сначала добавляем колонку без DEFAULT
                 c.execute("ALTER TABLE products ADD COLUMN last_checked_at TIMESTAMP")
                 logger.info("✅ Добавлена колонка last_checked_at (без DEFAULT)")
-                # Затем устанавливаем значение для существующих записей, если это необходимо
+                # Затем устанавливаем значение для существующих записей
                 c.execute("UPDATE products SET last_checked_at = CURRENT_TIMESTAMP WHERE last_checked_at IS NULL")
                 logger.info("✅ Установлено значение last_checked_at для существующих записей")
             except sqlite3.OperationalError as e:
@@ -168,36 +170,60 @@ def add_missing_columns():
         logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
 
+# ================== ФУНКЦИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==================
+def get_or_create_user(user_id, username="", first_name="", last_name=""):
+    """Получает или создаёт запись о пользователе"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+
+        c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        user = c.fetchone()
+
+        if not user:
+            c.execute(
+                """INSERT INTO users (user_id, username, first_name, last_name, daily_limit) 
+                   VALUES (?, ?, ?, ?, ?)""",
+                (user_id, username, first_name, last_name, DAILY_LIMIT)
+            )
+            logger.info(f"👤 Создан новый пользователь: {username} (ID: {user_id})")
+        else:
+            c.execute(
+                """UPDATE users SET username = ?, first_name = ?, last_name = ? 
+                   WHERE user_id = ?""",
+                (username, first_name, last_name, user_id)
+            )
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_or_create_user: {e}")
+        return False
+
+# ================== ФУНКЦИИ ДЛЯ ТОВАРОВ ==================
 async def get_next_product_for_user(user_id):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        # Показываем только товары, срок которых ещё не истёк
         c.execute("SELECT * FROM products WHERE expires_at > ? ORDER BY id ASC", (datetime.now(),))
         all_products = c.fetchall()
-
         if not all_products:
             conn.close()
             return None
-
         current_position = user_product_positions.get(user_id, 0)
         if current_position >= len(all_products):
             current_position = 0
-
         product = all_products[current_position]
-
         next_position = current_position + 1
         if next_position >= len(all_products):
             next_position = 0
-
         user_product_positions[user_id] = next_position
         conn.close()
         return product
-
     except Exception as e:
         logger.error(f"❌ Ошибка при получении товара: {e}")
         return None
-
 
 async def get_first_product():
     try:
@@ -210,7 +236,6 @@ async def get_first_product():
     except Exception as e:
         logger.error(f"❌ Ошибка при получении первого товара: {e}")
         return None
-
 
 def can_user_add_product(user_id):
     try:
@@ -239,181 +264,6 @@ def can_user_add_product(user_id):
     except Exception as e:
         logger.error(f"❌ Ошибка в can_user_add_product: {e}")
         return False, "❌ Произошла ошибка при проверке лимита."
-
-
-def add_to_whitelist(user_id, admin_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET is_whitelisted = 1 WHERE user_id = ?", (user_id,))
-        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, details) VALUES (?, ?, ?, ?, ?)""",
-                  (admin_id, "add_to_whitelist", user_id, "user", f"Добавлен в белый список"))
-        conn.commit()
-        conn.close()
-        return True, "✅ Пользователь добавлен в белый список."
-    except Exception as e:
-        logger.error(f"❌ Ошибка при добавлении в белый список: {e}")
-        return False, f"❌ Ошибка: {e}"
-
-
-def remove_from_whitelist(user_id, admin_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET is_whitelisted = 0 WHERE user_id = ?", (user_id,))
-        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, details) VALUES (?, ?, ?, ?, ?)""",
-                  (admin_id, "remove_from_whitelist", user_id, "user", f"Удален из белого списка"))
-        conn.commit()
-        conn.close()
-        return True, "✅ Пользователь удален из белого списка."
-    except Exception as e:
-        logger.error(f"❌ Ошибка при удалении из белого списка: {e}")
-        return False, f"❌ Ошибка: {e}"
-
-
-def is_user_whitelisted(user_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("SELECT is_whitelisted FROM users WHERE user_id = ?", (user_id,))
-        result = c.fetchone()
-        conn.close()
-        return result and result[0] == 1
-    except Exception as e:
-        logger.error(f"❌ Ошибка при проверке белого списка: {e}")
-        return False
-
-
-def get_whitelist():
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("""SELECT user_id, username, first_name, last_name FROM users WHERE is_whitelisted = 1 ORDER BY user_id""")
-        users = c.fetchall()
-        conn.close()
-        return users
-    except Exception as e:
-        logger.error(f"❌ Ошибка при получении белого списка: {e}")
-        return []
-
-
-def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, reason, details) VALUES (?, ?, ?, ?, ?, ?)""",
-                  (admin_id, action_type, target_id, target_type, reason, details))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка логирования действия админа: {e}")
-        return False
-
-
-def check_if_user_banned(user_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("SELECT is_banned, ban_reason FROM users WHERE user_id = ?", (user_id,))
-        result = c.fetchone()
-        conn.close()
-        if result and result[0] == 1:
-            return True, result[1]
-        return False, None
-    except Exception as e:
-        logger.error(f"❌ Ошибка при проверке бана: {e}")
-        return False, None
-
-
-def get_all_products():
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("""
-            SELECT p.id, p.title, p.price, p.contact, p.seller_id,
-                   (SELECT username FROM users WHERE user_id = p.seller_id LIMIT 1) as username,
-                   p.expires_at
-            FROM products p 
-            ORDER BY p.id DESC
-        """)
-        products = c.fetchall()
-        conn.close()
-        return products
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_all_products: {e}")
-        return []
-
-
-def get_product_by_id(product_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        product = c.fetchone()
-        conn.close()
-        return product
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_product_by_id: {e}")
-        return None
-
-
-def get_all_products_count():
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM products")
-        count = c.fetchone()[0]
-        conn.close()
-        return count
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_all_products_count: {e}")
-        return 0
-
-
-def get_user_by_id_or_username(search_term):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        if search_term.isdigit():
-            c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE user_id = ?", (int(search_term),))
-        else:
-            c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE username = ?", (search_term,))
-        user = c.fetchone()
-        conn.close()
-        return user
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_user_by_id_or_username: {e}")
-        return None
-
-
-def ban_user_in_db(user_id, reason, admin_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET is_banned = 1, ban_reason = ? WHERE user_id = ?", (reason, user_id))
-        log_admin_action(admin_id=admin_id, action_type="ban_user", target_id=user_id, target_type="user", reason=reason, details=f"Забанен пользователь")
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка при бане пользователя: {e}")
-        return False
-
-
-def unban_user_in_db(user_id, admin_id):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-        c.execute("UPDATE users SET is_banned = 0, ban_reason = NULL WHERE user_id = ?", (user_id,))
-        log_admin_action(admin_id=admin_id, action_type="unban_user", target_id=user_id, target_type="user", reason="Разбан", details=f"Разбанен пользователь")
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка при разбане пользователя: {e}")
-        return False
-
 
 # ================== ФУНКЦИИ ДЛЯ ОТЗЫВОВ ==================
 def get_seller_rating(seller_id):
@@ -530,7 +380,6 @@ def get_unmoderated_reviews():
         logger.error(f"❌ Ошибка в get_unmoderated_reviews: {e}")
         return []
 
-
 # ================== КЛАВИАТУРЫ ==================
 def get_main_menu_keyboard():
     keyboard = [
@@ -600,7 +449,6 @@ def get_whitelist_keyboard():
         [KeyboardButton(text="◀️ Назад в админку")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
-
 
 # ================== ОСНОВНЫЕ КОМАНДЫ ==================
 @dp.message(Command("start"))
@@ -1575,8 +1423,6 @@ async def next_product(message: types.Message, state: FSMContext):
         await message.answer("😔 Товаров больше нет")
 
 async def show_product_with_review_button(message: types.Message, product):
-    # product = (id, seller_id, title, description, price, contact, created_at, expires_at, last_extended_at, last_checked_at)
-    # индексы: 0:id, 1:seller_id, 2:title, 3:description, 4:price, 5:contact, 6:created_at, 7:expires_at, ...
     product_id = product[0]
     seller_id = product[1]
     title = product[2]
@@ -2037,7 +1883,6 @@ async def process_contact(message: types.Message, state: FSMContext):
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        # Вычисляем дату истечения (3 дня от текущего момента)
         expires_at = datetime.now() + timedelta(days=3)
         c.execute(
             """INSERT INTO products 
@@ -2229,12 +2074,10 @@ async def back_to_seller_callback(callback: types.CallbackQuery, state: FSMConte
 
 # ================== ФОНОВАЯ ЗАДАЧА: УВЕДОМЛЕНИЯ ОБ ИСТЕЧЕНИИ ==================
 async def check_expiring_products():
-    """Проверяет товары, которые истекают через 6 часов, и отправляет уведомления"""
     while True:
         try:
             conn = sqlite3.connect('brainrot_shop.db')
             c = conn.cursor()
-            # Ищем товары, у которых expires_at между сейчас и через 6 часов
             time_6h_later = datetime.now() + timedelta(hours=6)
             c.execute("""
                 SELECT id, seller_id, title, expires_at 
@@ -2245,7 +2088,6 @@ async def check_expiring_products():
             conn.close()
             for product in expiring_products:
                 product_id, seller_id, title, expires_at = product
-                # Отправляем уведомление продавцу
                 try:
                     kb = InlineKeyboardBuilder()
                     kb.button(text="⏳ Продлить на 3 дня", callback_data=f"extend_{product_id}")
@@ -2261,7 +2103,6 @@ async def check_expiring_products():
                     logger.info(f"✅ Уведомление об истечении отправлено продавцу {seller_id} для товара {product_id}")
                 except Exception as e:
                     logger.error(f"❌ Не удалось отправить уведомление продавцу {seller_id}: {e}")
-            # Ждём 1 час до следующей проверки
             await asyncio.sleep(3600)
         except Exception as e:
             logger.error(f"❌ Ошибка в фоновой задаче проверки истечения: {e}")
@@ -2269,12 +2110,10 @@ async def check_expiring_products():
 
 # ================== ФОНОВАЯ ЗАДАЧА: ПРОВЕРКА АКТУАЛЬНОСТИ ==================
 async def check_product_relevance():
-    """Раз в 3 дня спрашивает продавца, актуален ли товар"""
     while True:
         try:
             conn = sqlite3.connect('brainrot_shop.db')
             c = conn.cursor()
-            # Находим товары, которые не проверялись больше 3 дней и ещё не истекли
             three_days_ago = datetime.now() - timedelta(days=3)
             c.execute("""
                 SELECT id, seller_id, title 
@@ -2298,16 +2137,14 @@ async def check_product_relevance():
                         reply_markup=kb.as_markup()
                     )
                     logger.info(f"✅ Запрос актуальности отправлен продавцу {seller_id} для товара {product_id}")
-                    # Обновляем last_checked_at сразу, чтобы не спамить
-                    conn = sqlite3.connect('brainrot_shop.db')
-                    c = conn.cursor()
-                    c.execute("UPDATE products SET last_checked_at = ? WHERE id = ?", 
+                    conn2 = sqlite3.connect('brainrot_shop.db')
+                    c2 = conn2.cursor()
+                    c2.execute("UPDATE products SET last_checked_at = ? WHERE id = ?", 
                              (datetime.now(), product_id))
-                    conn.commit()
-                    conn.close()
+                    conn2.commit()
+                    conn2.close()
                 except Exception as e:
                     logger.error(f"❌ Ошибка при отправке запроса актуальности для товара {product_id}: {e}")
-            # Ждём 6 часов (можно изменить)
             await asyncio.sleep(6 * 3600)
         except Exception as e:
             logger.error(f"❌ Ошибка в фоновой задаче проверки актуальности: {e}")
@@ -2316,7 +2153,6 @@ async def check_product_relevance():
 # ================== ОБРАБОТЧИКИ ПРОДЛЕНИЯ И ПРОВЕРКИ АКТУАЛЬНОСТИ ==================
 @dp.callback_query(F.data.startswith("extend_"))
 async def extend_product_callback(callback: types.CallbackQuery):
-    """Продление товара на 3 дня"""
     product_id = int(callback.data.split("_")[1])
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -2332,7 +2168,6 @@ async def extend_product_callback(callback: types.CallbackQuery):
             await callback.answer("❌ Вы не можете продлить чужой товар!", show_alert=True)
             conn.close()
             return
-        # Проверяем, можно ли продлить (не прошло ли 3 дня с последнего продления)
         if last_extended_at:
             last_extended = datetime.strptime(last_extended_at, '%Y-%m-%d %H:%M:%S')
             if datetime.now() - last_extended < timedelta(days=3):
@@ -2362,7 +2197,6 @@ async def extend_product_callback(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("sold_"))
 async def mark_as_sold(callback: types.CallbackQuery):
-    """Отметить товар как проданный и удалить"""
     product_id = int(callback.data.split("_")[1])
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -2386,7 +2220,6 @@ async def mark_as_sold(callback: types.CallbackQuery):
             parse_mode="HTML"
         )
         await callback.answer("✅ Товар удалён", show_alert=False)
-        # Уведомление администратора
         for admin_id in ADMIN_IDS:
             try:
                 await bot.send_message(
@@ -2403,7 +2236,6 @@ async def mark_as_sold(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("still_selling_"))
 async def mark_as_still_selling(callback: types.CallbackQuery):
-    """Подтвердить, что товар ещё продаётся"""
     product_id = int(callback.data.split("_")[2])
     try:
         conn = sqlite3.connect('brainrot_shop.db')
@@ -2483,22 +2315,20 @@ async def unknown_command(message: types.Message, state: FSMContext):
             "🤔 Я не понял вашу команду.\n\nИспользуйте кнопки меню или команду /start",
             reply_markup=get_main_menu_keyboard()
         )
-    # Если состояние активно, игнорируем
 
 # ================== ЗАПУСК БОТА ==================
 async def main():
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v4.0 (полностью рабочий с истечением и актуальностью)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v4.1 (полностью рабочий, с отзывами и истечением)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
-        # Создаём таблицы при запуске
+        # Инициализация базы и добавление колонок
         init_database()
-        # Добавляем недостающие колонки
         add_missing_columns()
 
-        # Запускаем фоновые задачи
+        # Запуск фоновых задач
         asyncio.create_task(check_expiring_products())
         asyncio.create_task(check_product_relevance())
 
@@ -2522,10 +2352,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-
-
-
-
