@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -169,7 +169,8 @@ def add_missing_columns():
     except Exception as e:
         logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
-# ================== ФУНКЦИЯ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==================
+
+# ================== ФУНКЦИИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ==================
 def get_or_create_user(user_id, username="", first_name="", last_name=""):
     """Получает или создаёт запись о пользователе"""
     try:
@@ -199,6 +200,180 @@ def get_or_create_user(user_id, username="", first_name="", last_name=""):
     except Exception as e:
         logger.error(f"❌ Ошибка в get_or_create_user: {e}")
         return False
+
+def check_if_user_banned(user_id):
+    """Проверка, забанен ли пользователь"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT is_banned, ban_reason FROM users WHERE user_id = ?", (user_id,))
+        result = c.fetchone()
+        conn.close()
+        if result and result[0] == 1:
+            return True, result[1]
+        return False, None
+    except Exception as e:
+        logger.error(f"❌ Ошибка при проверке бана: {e}")
+        return False, None
+
+def ban_user_in_db(user_id, reason, admin_id):
+    """Блокирует пользователя в базе данных"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("UPDATE users SET is_banned = 1, ban_reason = ? WHERE user_id = ?", (reason, user_id))
+        log_admin_action(admin_id=admin_id, action_type="ban_user", target_id=user_id, target_type="user", reason=reason, details=f"Забанен пользователь")
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при бане пользователя: {e}")
+        return False
+
+def unban_user_in_db(user_id, admin_id):
+    """Разблокирует пользователя в базе данных"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("UPDATE users SET is_banned = 0, ban_reason = NULL WHERE user_id = ?", (user_id,))
+        log_admin_action(admin_id=admin_id, action_type="unban_user", target_id=user_id, target_type="user", reason="Разбан", details=f"Разбанен пользователь")
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка при разбане пользователя: {e}")
+        return False
+
+def get_user_by_id_or_username(search_term):
+    """Находит пользователя по ID или username"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        if search_term.isdigit():
+            c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE user_id = ?", (int(search_term),))
+        else:
+            c.execute("SELECT user_id, username, is_banned, ban_reason FROM users WHERE username = ?", (search_term,))
+        user = c.fetchone()
+        conn.close()
+        return user
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_user_by_id_or_username: {e}")
+        return None
+
+def is_user_whitelisted(user_id):
+    """Проверяет, находится ли пользователь в белом списке"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT is_whitelisted FROM users WHERE user_id = ?", (user_id,))
+        result = c.fetchone()
+        conn.close()
+        return result and result[0] == 1
+    except Exception as e:
+        logger.error(f"❌ Ошибка при проверке белого списка: {e}")
+        return False
+
+def get_whitelist():
+    """Возвращает список пользователей в белом списке"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""SELECT user_id, username, first_name, last_name FROM users WHERE is_whitelisted = 1 ORDER BY user_id""")
+        users = c.fetchall()
+        conn.close()
+        return users
+    except Exception as e:
+        logger.error(f"❌ Ошибка при получении белого списка: {e}")
+        return []
+
+def add_to_whitelist(user_id, admin_id):
+    """Добавляет пользователя в белый список"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("UPDATE users SET is_whitelisted = 1 WHERE user_id = ?", (user_id,))
+        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, details) VALUES (?, ?, ?, ?, ?)""",
+                  (admin_id, "add_to_whitelist", user_id, "user", f"Добавлен в белый список"))
+        conn.commit()
+        conn.close()
+        return True, "✅ Пользователь добавлен в белый список."
+    except Exception as e:
+        logger.error(f"❌ Ошибка при добавлении в белый список: {e}")
+        return False, f"❌ Ошибка: {e}"
+
+def remove_from_whitelist(user_id, admin_id):
+    """Удаляет пользователя из белого списка"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("UPDATE users SET is_whitelisted = 0 WHERE user_id = ?", (user_id,))
+        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, details) VALUES (?, ?, ?, ?, ?)""",
+                  (admin_id, "remove_from_whitelist", user_id, "user", f"Удален из белого списка"))
+        conn.commit()
+        conn.close()
+        return True, "✅ Пользователь удален из белого списка."
+    except Exception as e:
+        logger.error(f"❌ Ошибка при удалении из белого списка: {e}")
+        return False, f"❌ Ошибка: {e}"
+
+def log_admin_action(admin_id, action_type, target_id=None, target_type=None, reason=None, details=None):
+    """Логирование действий админа"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""INSERT INTO admin_actions (admin_id, action_type, target_id, target_type, reason, details) VALUES (?, ?, ?, ?, ?, ?)""",
+                  (admin_id, action_type, target_id, target_type, reason, details))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка логирования действия админа: {e}")
+        return False
+
+def get_all_products():
+    """Получает все товары для админки"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("""
+            SELECT p.id, p.title, p.price, p.contact, p.seller_id,
+                   (SELECT username FROM users WHERE user_id = p.seller_id LIMIT 1) as username,
+                   p.expires_at
+            FROM products p 
+            ORDER BY p.id DESC
+        """)
+        products = c.fetchall()
+        conn.close()
+        return products
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_all_products: {e}")
+        return []
+
+def get_product_by_id(product_id):
+    """Получает товар по ID"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        product = c.fetchone()
+        conn.close()
+        return product
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_product_by_id: {e}")
+        return None
+
+def get_all_products_count():
+    """Получает количество товаров"""
+    try:
+        conn = sqlite3.connect('brainrot_shop.db')
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM products")
+        count = c.fetchone()[0]
+        conn.close()
+        return count
+    except Exception as e:
+        logger.error(f"❌ Ошибка в get_all_products_count: {e}")
+        return 0
 
 # ================== ФУНКЦИИ ДЛЯ ТОВАРОВ ==================
 async def get_next_product_for_user(user_id):
@@ -2319,7 +2494,7 @@ async def unknown_command(message: types.Message, state: FSMContext):
 async def main():
     try:
         logger.info("=" * 70)
-        logger.info("🚀 Запуск Brainrot Shop Bot v4.1 (полностью рабочий, с отзывами и истечением)")
+        logger.info("🚀 Запуск Brainrot Shop Bot v4.2 (полностью рабочий, все функции присутствуют)")
         logger.info("=" * 70)
         logger.info(f"📊 Настройки: Лимит {DAILY_LIMIT} товаров/сутки для обычных пользователей")
 
@@ -2351,6 +2526,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-
