@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== ТОКЕН БОТА ===================
-TOKEN = ""
+TOKEN = "8597607925:AAH7K3un_5thMpNaBg0lE_qBbmtWhDSOVFo"
 
 if not TOKEN:
     logger.error("❌ Токен бота не найден!")
@@ -128,71 +128,45 @@ def init_database():
     except Exception as e:
         logger.error(f"❌ Ошибка БД: {e}")
         return False
-
 # ================== ДОБАВЛЕНИЕ НЕДОСТАЮЩИХ КОЛОНОК (ГАРАНТИРОВАННО) ==================
 def add_missing_columns():
-    """Проверяет наличие нужных колонок в таблице products и добавляет их"""
+    """Проверяет наличие нужных колонок в таблице products и добавляет их, обходя ограничения SQLite"""
     try:
         conn = sqlite3.connect('brainrot_shop.db')
         c = conn.cursor()
-        
+
         # Получаем список существующих колонок
         c.execute("PRAGMA table_info(products)")
         columns = [row[1] for row in c.fetchall()]
-        
+
         # Добавляем expires_at
         if 'expires_at' not in columns:
             c.execute("ALTER TABLE products ADD COLUMN expires_at TIMESTAMP")
             logger.info("✅ Добавлена колонка expires_at")
-        
+
         # Добавляем last_extended_at
         if 'last_extended_at' not in columns:
             c.execute("ALTER TABLE products ADD COLUMN last_extended_at TIMESTAMP")
             logger.info("✅ Добавлена колонка last_extended_at")
-        
-        # Добавляем last_checked_at с DEFAULT (для старых записей)
+
+        # Добавляем last_checked_at (без DEFAULT, чтобы избежать ошибки)
         if 'last_checked_at' not in columns:
-            # SQLite требует DEFAULT, чтобы заполнить существующие строки
-            c.execute("ALTER TABLE products ADD COLUMN last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-            logger.info("✅ Добавлена колонка last_checked_at")
-        
+            try:
+                # Сначала добавляем колонку без DEFAULT
+                c.execute("ALTER TABLE products ADD COLUMN last_checked_at TIMESTAMP")
+                logger.info("✅ Добавлена колонка last_checked_at (без DEFAULT)")
+                # Затем устанавливаем значение для существующих записей, если это необходимо
+                c.execute("UPDATE products SET last_checked_at = CURRENT_TIMESTAMP WHERE last_checked_at IS NULL")
+                logger.info("✅ Установлено значение last_checked_at для существующих записей")
+            except sqlite3.OperationalError as e:
+                logger.error(f"❌ Ошибка при добавлении last_checked_at: {e}")
+
         conn.commit()
         conn.close()
         return True
     except Exception as e:
         logger.error(f"❌ Ошибка при добавлении колонок: {e}")
         return False
-
-
-def get_or_create_user(user_id, username="", first_name="", last_name=""):
-    try:
-        conn = sqlite3.connect('brainrot_shop.db')
-        c = conn.cursor()
-
-        c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        user = c.fetchone()
-
-        if not user:
-            c.execute(
-                """INSERT INTO users (user_id, username, first_name, last_name, daily_limit) 
-                   VALUES (?, ?, ?, ?, ?)""",
-                (user_id, username, first_name, last_name, DAILY_LIMIT)
-            )
-            logger.info(f"👤 Создан новый пользователь: {username} (ID: {user_id})")
-        else:
-            c.execute(
-                """UPDATE users SET username = ?, first_name = ?, last_name = ? 
-                   WHERE user_id = ?""",
-                (username, first_name, last_name, user_id)
-            )
-
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка в get_or_create_user: {e}")
-        return False
-
 
 async def get_next_product_for_user(user_id):
     try:
@@ -2548,6 +2522,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
